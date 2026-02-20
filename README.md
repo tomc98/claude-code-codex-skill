@@ -14,14 +14,14 @@ Codex runs as a background agent — launch a task, continue working, and collec
 
 ```bash
 # Clone into your skills directory
-git clone https://github.com/<owner>/codex-skill ~/.claude/skills/codex
+git clone https://github.com/tomc98/claude-code-codex-skill ~/.claude/skills/codex
 ```
 
-Or if you have the [skill-manager](https://github.com/<owner>/skill-manager) skill:
+Or if you have the [skill-manager](https://github.com/tomc98/claude-code-skill-manager) skill:
 
 ```bash
 # Via /skill-manager
-/skill-manager install https://github.com/<owner>/codex-skill
+/skill-manager install https://github.com/tomc98/claude-code-codex-skill
 ```
 
 ## What It Does
