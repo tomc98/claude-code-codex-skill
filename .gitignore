@@ -1,0 +1,17 @@
+# Environment
+.env
+.env.local
+
+# Cache
+cache/
+__pycache__/
+*.pyc
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+*.swp
+*.swo
+*~
