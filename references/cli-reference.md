@@ -19,9 +19,12 @@
 | `-m MODEL` | Override model |
 | `-C DIR` | Set working directory |
 | `-s MODE` | Sandbox: `read-only`, `workspace-write`, `danger-full-access` |
+| `-i FILE` | Attach image(s) to prompt (repeatable) |
 | `--full-auto` | workspace-write + relaxed approvals |
-| `--skip-git-repo-check` | Run outside git repos |
+| `--ephemeral` | Don't persist session to disk |
 | `--output-schema FILE` | Validate output against JSON Schema |
+| `--add-dir DIR` | Grant write access to additional directory |
+| `--skip-git-repo-check` | Run outside git repos |
 | `--color never` | Disable ANSI colors |
 
 ## Key Flags for `codex exec review`
@@ -46,9 +49,12 @@
 
 ```bash
 # Model and reasoning
--c model="gpt-5.3-codex"
+-c model="gpt-5.4"
 -c model_reasoning_effort="xhigh"      # minimal|low|medium|high|xhigh
 -c model_reasoning_summary="detailed"   # auto|concise|detailed|none
+
+# Web search (for exec mode — --search flag is interactive-only)
+-c features.search_tool=true
 
 # Sandbox
 -c sandbox_mode="workspace-write"
@@ -61,8 +67,10 @@
 
 | Model | Use Case |
 |-------|----------|
-| `gpt-5.3-codex` | Best coding model, 25% faster than 5.2 |
+| `gpt-5.4` | Best coding model, xhigh reasoning + fast mode |
+| `gpt-5.4-pro` | Maximum performance, Pro/Enterprise only |
 | `gpt-5.3-codex` | Previous best, still excellent |
+| `gpt-5.3-codex-spark` | Ultra-fast, ChatGPT Pro only |
 | `gpt-5.1-codex-mini` | Cost-effective, fast |
 | `gpt-5.1-codex-max` | Long-horizon agentic tasks |
 
@@ -76,6 +84,24 @@
 | `high` | Complex tasks |
 | `xhigh` | Maximum accuracy, benchmarks |
 
+## Sandbox Modes
+
+| Mode | Behavior |
+|------|----------|
+| `read-only` | Can read files, run read-only commands. Cannot write. Used by `think`. |
+| `workspace-write` | Can read + write within the project directory only. Sandboxed. |
+| `danger-full-access` | Full system access. No sandbox. Used by `run`. |
+
+## Web Search in Exec Mode
+
+The `--search` flag only works in interactive mode. For `codex exec`, enable web search via config override:
+
+```bash
+codex exec -c 'features.search_tool=true' "Search the web for..."
+```
+
+This is handled automatically by `codex.sh` — both `think` and `run` commands enable web search by default.
+
 ## Environment Variables
 
 | Variable | Purpose |
@@ -85,7 +111,7 @@
 
 ## Session Storage
 
-Sessions stored at `~/.codex/sessions/` as JSONL files, organized by date.
+Sessions stored at `~/.codex/sessions/` as JSONL files, organized by date. Use `--ephemeral` to skip persistence.
 
 ## Output Modes
 

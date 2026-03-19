@@ -1,6 +1,6 @@
 # Prompt Engineering for Codex
 
-GPT-5.3-codex at xhigh reasoning is an extraordinarily capable coding model. The quality of its output is directly proportional to the quality of the prompt. This guide covers how to craft prompts that get the most out of Codex.
+GPT-5.4 at xhigh reasoning is an extraordinarily capable coding model. The quality of its output is directly proportional to the quality of the prompt. This guide covers how to craft prompts that get the most out of Codex.
 
 ## Core Principles
 
@@ -77,6 +77,64 @@ For each finding:
 - Suggested fix (code snippet if applicable)
 
 Prioritize findings by severity. Be thorough but avoid false positives.
+```
+
+### Deliberation / Think Task
+
+Use these with the `think` command for read-only analysis:
+
+```
+QUESTION: <What you're trying to decide>
+
+CONTEXT:
+- Current approach: <what exists now>
+- Constraints: <performance, compatibility, team size, timeline>
+- Key files: <paths Codex should read for context>
+
+Consider:
+1. What are the viable approaches?
+2. Tradeoffs of each (performance, maintainability, complexity)?
+3. Which fits best given our constraints?
+4. What are the risks of each approach?
+
+Give a clear recommendation with reasoning.
+```
+
+### Research / Web Search Task
+
+Use with `think` — Codex will search the web automatically:
+
+```
+Research: <topic>
+
+I need to understand:
+1. <Specific question>
+2. <Specific question>
+3. <Specific question>
+
+Context: We're using <framework/language/stack> and need <goal>.
+
+Search the web for current best practices, official docs, and recent community experience. Summarize findings with links to sources.
+```
+
+### Architecture Review
+
+Use with `think` for read-only analysis:
+
+```
+Review the architecture in <directory/path> for:
+
+1. **Scalability**: Will this handle 10x/100x growth?
+2. **Separation of concerns**: Are boundaries clean?
+3. **Error handling**: Are failure modes covered?
+4. **Testing**: Is the code testable? Are there missing test boundaries?
+5. **Dependencies**: Are there circular deps or tight coupling?
+
+Read the code, then provide:
+- A summary of the current architecture
+- Strengths worth preserving
+- Specific issues ranked by severity
+- Concrete suggestions (with file paths and code if helpful)
 ```
 
 ### Bug Fix
@@ -200,6 +258,21 @@ DETAIL: <explanation of why this is a problem>
 FIX: <suggested code change>
 ```
 
+### Image-Driven Implementation
+
+When passing mockups or screenshots via `--image`:
+
+```
+Implement the UI shown in the attached image.
+
+Tech stack: <React/Vue/etc>
+Component location: `src/components/`
+Styling: <Tailwind/CSS modules/etc>
+
+Match the layout, spacing, and visual hierarchy as closely as possible.
+Refer to existing components in `src/components/` for patterns.
+```
+
 ## Tips for Getting the Best Results
 
 1. **One task per session**: Don't overload a single prompt with multiple unrelated tasks
@@ -209,3 +282,5 @@ FIX: <suggested code change>
 5. **Use follow-ups**: Start with a focused task, then resume the session for refinements
 6. **For reviews, provide context**: "This is a security-critical auth module" changes the review depth
 7. **Trust but verify**: Codex at xhigh is highly accurate but always review the diff before accepting
+8. **Use think for decisions**: Before committing to an approach, ask Codex to deliberate in read-only mode
+9. **Leverage web search**: For think tasks, Codex can search the web — great for "is there a better way?" questions
