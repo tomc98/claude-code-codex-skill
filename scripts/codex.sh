@@ -142,7 +142,7 @@ run_codex() {
 
     build_cmd
 
-    "${CMD[@]}" >/dev/null 2>"$STDERR_FILE" || true
+    "${CMD[@]}" </dev/null >/dev/null 2>"$STDERR_FILE" || true
     emit_result
 }
 
@@ -163,7 +163,7 @@ think_codex() {
 
     build_cmd
 
-    "${CMD[@]}" >/dev/null 2>"$STDERR_FILE" || true
+    "${CMD[@]}" </dev/null >/dev/null 2>"$STDERR_FILE" || true
     emit_result
 }
 
@@ -209,7 +209,7 @@ resume_codex() {
     [[ -n "$prompt" ]] && cmd+=("$prompt")
 
     cmd+=(-o "$OUTPUT_FILE")
-    "${cmd[@]}" >/dev/null 2>"$STDERR_FILE" || true
+    "${cmd[@]}" </dev/null >/dev/null 2>"$STDERR_FILE" || true
     emit_result
 }
 
@@ -247,7 +247,7 @@ review_codex() {
     $uncommitted       && cmd+=(--uncommitted)
     [[ -n "$prompt" ]] && cmd+=("$prompt")
 
-    "${cmd[@]}" >"$OUTPUT_FILE" 2>&1 || true
+    "${cmd[@]}" </dev/null >"$OUTPUT_FILE" 2>&1 || true
 
     if [[ -s "$OUTPUT_FILE" ]]; then
         local session_id
