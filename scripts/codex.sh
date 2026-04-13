@@ -82,11 +82,7 @@ run_with_check() {
     "${CMD[@]}" </dev/null >/dev/null 2>"$STDERR_FILE" || rc=$?
 
     if [[ $rc -ne 0 && ! -s "$OUTPUT_FILE" ]]; then
-        if [[ $rc -eq 124 ]]; then
-            echo "ERROR: Codex timed out after ${TIMEOUT}s" >&2
-        else
-            echo "ERROR: Codex exited with code $rc" >&2
-        fi
+        echo "ERROR: Codex exited with code $rc" >&2
         if [[ -s "$STDERR_FILE" ]]; then
             echo "--- stderr ---" >&2
             tail -20 "$STDERR_FILE" >&2
@@ -117,16 +113,22 @@ validate_scope() {
         fi
     fi
 
-    # Check ALL changed files: modified, staged, AND untracked new files
-    while IFS= read -r changed_file; do
-        [[ -z "$changed_file" ]] && continue
-        # Extract filename (git status --porcelain prefixes with XY + space)
-        local fname="${changed_file:3}"
-        [[ -z "$fname" ]] && continue
+    # Collect changed files using name-only output (handles renames, spaces, special chars).
+    # git diff --name-only covers tracked changes (including staged after soft-reset).
+    # git ls-files --others covers untracked new files Codex may have created.
+    local changed_files=()
+    while IFS= read -r f; do
+        [[ -n "$f" ]] && changed_files+=("$f")
+    done < <(
+        git -C "$dir" diff --name-only HEAD 2>/dev/null
+        git -C "$dir" ls-files --others --exclude-standard 2>/dev/null
+    )
+
+    for fname in "${changed_files[@]}"; do
         if ! echo "$ALLOWED_FILES" | tr ',' '\n' | grep -qxF "$fname"; then
             unauthorized+=("$fname")
         fi
-    done < <(git -C "$dir" status --porcelain 2>/dev/null)
+    done
 
     if [[ ${#unauthorized[@]} -gt 0 ]]; then
         echo "" >&2
@@ -172,7 +174,7 @@ parse_common_flags() {
             --add-dir)       ADD_DIRS+=("$2"); shift 2 ;;
             --search)        SEARCH=true; shift ;;
             --allowed-files) ALLOWED_FILES="$2"; shift 2 ;;
-            --*)             echo "WARNING: Unknown flag '$1' ignored" >&2; shift ;;
+            --*)             echo "WARNING: Unknown flag '$1' ignored (if it takes a value, pass the prompt before flags)" >&2; shift ;;
             *)
                 if [[ -z "$PROMPT" ]]; then
                     PROMPT="$1"
@@ -278,7 +280,9 @@ resume_codex() {
     done
 
     # cd into target dir if specified (resume doesn't support -C)
-    [[ -n "$dir" ]] && cd "$dir"
+    if [[ -n "$dir" ]] && ! cd "$dir"; then
+        echo "ERROR: Cannot cd to '$dir'" >&2; exit 1
+    fi
 
     local -a cmd=("$CODEX_BIN" exec resume --skip-git-repo-check)
     $show_all && cmd+=(--all)
@@ -332,7 +336,9 @@ review_codex() {
         esac
     done
 
-    [[ -n "$dir" ]] && cd "$dir"
+    if [[ -n "$dir" ]] && ! cd "$dir"; then
+        echo "ERROR: Cannot cd to '$dir'" >&2; exit 1
+    fi
 
     local -a cmd=("$CODEX_BIN" exec review --skip-git-repo-check)
     # Enable web search and disable color for clean output
