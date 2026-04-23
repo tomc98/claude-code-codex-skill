@@ -49,7 +49,7 @@
 
 ```bash
 # Model and reasoning
--c model="gpt-5.4"
+-c model="gpt-5.5"
 -c model_reasoning_effort="xhigh"      # minimal|low|medium|high|xhigh
 -c model_reasoning_summary="detailed"   # auto|concise|detailed|none
 
@@ -67,9 +67,10 @@
 
 | Model | Use Case |
 |-------|----------|
-| `gpt-5.4` | Best coding model, xhigh reasoning + fast mode |
-| `gpt-5.4-pro` | Maximum performance, Pro/Enterprise only |
-| `gpt-5.3-codex` | Previous best, still excellent |
+| `gpt-5.5` | Best coding model, xhigh reasoning + fast mode |
+| `gpt-5.5-pro` | Maximum performance, Pro/Enterprise only |
+| `gpt-5.4` | Previous best, still excellent |
+| `gpt-5.3-codex` | Older generation |
 | `gpt-5.3-codex-spark` | Ultra-fast, ChatGPT Pro only |
 | `gpt-5.1-codex-mini` | Cost-effective, fast |
 | `gpt-5.1-codex-max` | Long-horizon agentic tasks |

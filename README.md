@@ -1,6 +1,6 @@
 # codex
 
-A [Claude Code](https://docs.anthropic.com/en/docs/claude-code) skill that delegates tasks to [OpenAI Codex CLI](https://github.com/openai/codex) (GPT-5.4) for precision coding, code review, deliberation, and complex implementation.
+A [Claude Code](https://docs.anthropic.com/en/docs/claude-code) skill that delegates tasks to [OpenAI Codex CLI](https://github.com/openai/codex) (GPT-5.5) for precision coding, code review, deliberation, and complex implementation.
 
 Codex runs as a background agent — launch a task, continue working, and collect results when ready.
 
@@ -52,7 +52,7 @@ Once installed, Claude Code uses this skill automatically when delegating to Cod
 Codex is configured via `~/.codex/config.toml`. Recommended defaults:
 
 ```toml
-model = "gpt-5.4"
+model = "gpt-5.5"
 model_reasoning_effort = "xhigh"
 sandbox_mode = "danger-full-access"
 

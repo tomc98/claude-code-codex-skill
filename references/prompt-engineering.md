@@ -1,6 +1,6 @@
 # Prompt Engineering for Codex
 
-GPT-5.4 at xhigh reasoning is an extraordinarily capable coding model. The quality of its output is directly proportional to the quality of the prompt. This guide covers how to craft prompts that get the most out of Codex.
+GPT-5.5 at xhigh reasoning is an extraordinarily capable coding model. The quality of its output is directly proportional to the quality of the prompt. This guide covers how to craft prompts that get the most out of Codex.
 
 ## Core Principles
 

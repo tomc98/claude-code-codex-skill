@@ -1,6 +1,6 @@
 ---
 name: codex
-description: Delegate tasks to OpenAI Codex (GPT-5.4) as background tasks for precision coding, code review, deliberation, and complex implementation. Always launch in background (run_in_background=true), continue working, then collect results with TaskOutput when needed.
+description: Delegate tasks to OpenAI Codex (GPT-5.5) as background tasks for precision coding, code review, deliberation, and complex implementation. Always launch in background (run_in_background=true), continue working, then collect results with TaskOutput when needed.
 allowed-tools: Bash, Read, Grep, Glob, TaskOutput, Edit, Write
 ---
 
@@ -8,7 +8,7 @@ allowed-tools: Bash, Read, Grep, Glob, TaskOutput, Edit, Write
 
 > Paths below use `{base}` as shorthand for this skill's base directory, provided automatically at the top of the prompt when the skill loads.
 
-Codex is GPT-5.4 — a different model with a different reasoning manifold than Claude. It catches things you miss, thinks about problems differently, and arrives at solutions from a different angle. Use it as a genuine second brain, not just a subprocess. Its opinions, reviews, and implementations carry independent signal — when Codex disagrees with your approach, that disagreement is valuable.
+Codex is GPT-5.5 — a different model with a different reasoning manifold than Claude. It catches things you miss, thinks about problems differently, and arrives at solutions from a different angle. Use it as a genuine second brain, not just a subprocess. Its opinions, reviews, and implementations carry independent signal — when Codex disagrees with your approach, that disagreement is valuable.
 
 Two modes of operation:
 
