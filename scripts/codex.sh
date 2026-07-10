@@ -4,7 +4,7 @@
 #
 # Usage:
 #   codex.sh run "prompt" [--dir PATH] [--model MODEL] [--effort LEVEL] [--sandbox MODE] [--image FILE] [--ephemeral] [--schema FILE] [--add-dir PATH]
-#   codex.sh think "prompt" [--dir PATH] [--image FILE] [--ephemeral] [--schema FILE]
+#   codex.sh think "prompt" [--dir PATH] [--model MODEL] [--effort LEVEL] [--image FILE] [--ephemeral] [--schema FILE]
 #   codex.sh resume [--session ID | --last] "prompt" [--dir PATH]
 #   codex.sh review [--base BRANCH | --commit SHA | --uncommitted] ["custom instructions"]
 
