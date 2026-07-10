@@ -4,7 +4,7 @@
 #
 # Usage:
 #   codex.sh run "prompt" [--dir PATH] [--model MODEL] [--effort LEVEL] [--sandbox MODE] [--image FILE] [--ephemeral] [--schema FILE] [--add-dir PATH]
-#   codex.sh think "prompt" [--dir PATH] [--image FILE] [--ephemeral] [--schema FILE]
+#   codex.sh think "prompt" [--dir PATH] [--model MODEL] [--effort LEVEL] [--image FILE] [--ephemeral] [--schema FILE]
 #   codex.sh resume [--session ID | --last] "prompt" [--dir PATH]
 #   codex.sh review [--base BRANCH | --commit SHA | --uncommitted] ["custom instructions"]
 
@@ -37,7 +37,8 @@ Commands:
 Options:
   --dir PATH         Working directory (default: current)
   --model MODEL      Override model (default: from config.toml)
-  --effort LEVEL     Reasoning effort: minimal|low|medium|high|xhigh
+  --effort LEVEL     Reasoning effort: low|medium|high|xhigh|max|ultra
+                     (max/ultra are GPT-5.6+; ultra needs Sol or Terra)
   --sandbox MODE     Sandbox: read-only|workspace-write|danger-full-access
   --image FILE       Attach an image (repeatable)
   --ephemeral        Don't persist session to disk
