@@ -1,6 +1,6 @@
 ---
 name: codex
-description: Delegate tasks to OpenAI Codex (GPT-5.5) as background tasks for precision coding, code review, deliberation, and complex implementation. Always launch in background (run_in_background=true), continue working, then collect results with TaskOutput when needed.
+description: Delegate tasks to OpenAI Codex (GPT-5.6) as background tasks for precision coding, code review, deliberation, and complex implementation. Always launch in background (run_in_background=true), continue working, then collect results with TaskOutput when needed.
 allowed-tools: Bash, Read, Grep, Glob, TaskOutput, Edit, Write
 ---
 
@@ -8,7 +8,15 @@ allowed-tools: Bash, Read, Grep, Glob, TaskOutput, Edit, Write
 
 > Paths below use `{base}` as shorthand for this skill's base directory, provided automatically at the top of the prompt when the skill loads.
 
-Codex is GPT-5.5 — a different model with a different reasoning manifold than Claude. It catches things you miss, thinks about problems differently, and arrives at solutions from a different angle. Use it as a genuine second brain, not just a subprocess. Its opinions, reviews, and implementations carry independent signal — when Codex disagrees with your approach, that disagreement is valuable.
+Codex is GPT-5.6 — a different model with a different reasoning manifold than Claude. It catches things you miss, thinks about problems differently, and arrives at solutions from a different angle. Use it as a genuine second brain, not just a subprocess. Its opinions, reviews, and implementations carry independent signal — when Codex disagrees with your approach, that disagreement is valuable.
+
+GPT-5.6 ships as three tiers. `gpt-5.6-sol` is the default and the one you want almost always.
+
+| Tier | Slug | Use it for |
+|------|------|-----------|
+| **Sol** | `gpt-5.6-sol` | Flagship. The default — deep reasoning, review, hard implementation |
+| **Terra** | `gpt-5.6-terra` | Balanced everyday work at lower cost |
+| **Luna** | `gpt-5.6-luna` | Fast and cheap; simple, repeatable tasks |
 
 Two modes of operation:
 
@@ -71,6 +79,21 @@ For complex tasks, add structure (see `references/prompt-engineering.md` for tem
 - **Adversarial review** — use `think` to challenge your own implementation. A different model questioning your code is more valuable than self-review
 - **Parallel expertise** — while you work on feature A, Codex implements feature B or researches approach C
 - **Deep reasoning tasks** — xhigh effort on complex algorithms, security analysis, architecture decisions
+
+## Reasoning Effort
+
+`--effort` takes `low | medium | high | xhigh | max | ultra`. Default is `xhigh` for deep work.
+
+`max` and `ultra` are new in GPT-5.6 and sit above `xhigh`:
+
+- **`max`** — maximum depth within a single turn. Reach for it on genuinely hard problems where `xhigh` returned something shallow. Cost is higher but bounded.
+- **`ultra`** — maximum depth *plus* automatic task delegation: Codex decomposes the problem and spawns internal sub-agents. Escalate to it only when the task genuinely warrants it — a large refactor, a subtle cross-cutting bug, an architecture decision with many interacting constraints. Token spend is substantially higher and harder to predict, so don't make it a default.
+
+`ultra` requires Sol or Terra — `gpt-5.6-luna` caps at `max`. There is no `minimal` effort.
+
+```bash
+{base}/scripts/codex.sh think "why does this deadlock under load?" --effort ultra --dir /project
+```
 
 ## When NOT to Use Codex
 

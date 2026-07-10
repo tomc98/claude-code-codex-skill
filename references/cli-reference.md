@@ -49,8 +49,8 @@
 
 ```bash
 # Model and reasoning
--c model="gpt-5.5"
--c model_reasoning_effort="xhigh"      # minimal|low|medium|high|xhigh
+-c model="gpt-5.6-sol"
+-c model_reasoning_effort="xhigh"      # low|medium|high|xhigh|max|ultra
 -c model_reasoning_summary="detailed"   # auto|concise|detailed|none
 
 # Web search (for exec mode — --search flag is interactive-only)
@@ -65,25 +65,36 @@
 
 ## Models
 
+GPT-5.6 ships as three capability tiers — the generation number and the tier name advance independently.
+
 | Model | Use Case |
 |-------|----------|
-| `gpt-5.5` | Best coding model, xhigh reasoning + fast mode |
-| `gpt-5.5-pro` | Maximum performance, Pro/Enterprise only |
-| `gpt-5.4` | Previous best, still excellent |
-| `gpt-5.3-codex` | Older generation |
-| `gpt-5.3-codex-spark` | Ultra-fast, ChatGPT Pro only |
-| `gpt-5.1-codex-mini` | Cost-effective, fast |
-| `gpt-5.1-codex-max` | Long-horizon agentic tasks |
+| `gpt-5.6-sol` | Flagship agentic coding model. The default |
+| `gpt-5.6-terra` | Balanced everyday work, lower cost |
+| `gpt-5.6-luna` | Fast and affordable; caps at `max` effort |
+| `gpt-5.5` | Previous frontier model |
+| `gpt-5.4` | Strong everyday coding |
+| `gpt-5.4-mini` | Small, fast, cost-efficient |
+| `gpt-5.3-codex-spark` | Ultra-fast, text-only; not available via API |
+
+There is no bare `gpt-5.6` slug — always name a tier.
+
+To see exactly what your account can reach, read `~/.codex/models_cache.json`; the CLI refreshes it from OpenAI and it is the source of truth. Slugs that have aged out (`gpt-5.3-codex`, `gpt-5.5-pro`, `gpt-5.1-codex-mini`, `gpt-5.1-codex-max`) now fail with a 400.
 
 ## Reasoning Effort
 
 | Level | Use Case |
 |-------|----------|
-| `minimal` | Fastest, simple tasks |
-| `low` | Quick edits |
+| `low` | Quick edits (Sol's own default) |
 | `medium` | Daily driver |
 | `high` | Complex tasks |
 | `xhigh` | Maximum accuracy, benchmarks |
+| `max` | Maximum single-turn depth for the hardest problems |
+| `ultra` | Maximum depth + automatic task delegation to internal sub-agents |
+
+`max` and `ultra` are new in GPT-5.6. `ultra` is Sol/Terra only — Luna caps at `max`. `minimal` is **not** a valid effort and will 400.
+
+Escalate to `ultra` only when the task warrants it: it spawns sub-agents, so token spend is markedly higher and less predictable. Consider pairing it with `rollout_token_budget`.
 
 ## Sandbox Modes
 

@@ -37,7 +37,8 @@ Commands:
 Options:
   --dir PATH         Working directory (default: current)
   --model MODEL      Override model (default: from config.toml)
-  --effort LEVEL     Reasoning effort: minimal|low|medium|high|xhigh
+  --effort LEVEL     Reasoning effort: low|medium|high|xhigh|max|ultra
+                     (max/ultra are GPT-5.6+; ultra needs Sol or Terra)
   --sandbox MODE     Sandbox: read-only|workspace-write|danger-full-access
   --image FILE       Attach an image (repeatable)
   --ephemeral        Don't persist session to disk
