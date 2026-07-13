@@ -22,8 +22,10 @@ Two modes of operation:
 
 | Mode | Command | Sandbox | Web | Sessions | Purpose |
 |------|---------|---------|-----|----------|---------|
-| **think** | `think` | read-only | yes | ephemeral | Analysis, deliberation, research, review, second opinions |
+| **think** | `think` | read-only | yes | persisted | Analysis, deliberation, research, review, second opinions |
 | **run** | `run` | full-access | yes | persisted | Implementation, coding, refactoring, bug fixes |
+
+All sessions persist (and are resumable) by default — pass `--ephemeral` to opt out, knowing that disables capacity recovery and resume.
 
 **Choose think** when the user wants opinions, analysis, or research — no files will be modified.
 **Choose run** when the user wants code changes.
@@ -47,12 +49,22 @@ When unclear, default to **run**.
 {base}/scripts/codex.sh review --commit abc123
 {base}/scripts/codex.sh review --uncommitted
 
-# Resume a previous run session
+# Resume a previous session (think and run both persist now)
 {base}/scripts/codex.sh resume --last "follow-up instruction"
 {base}/scripts/codex.sh resume --session <SESSION_ID> "follow-up"
+
+# Transfer the CURRENT Claude session into a persistent Codex thread
+# (source must be a transcript under ~/.claude/projects; SESSION: in the
+#  output is the imported thread id — `codex resume <id>` continues the
+#  conversation in the Codex TUI, or resume it via this wrapper)
+{base}/scripts/codex.sh transfer --source <path-to-this-session.jsonl>
+{base}/scripts/codex.sh transfer --latest   # newest transcript on this machine
 ```
 
-**Flags:** `--dir`, `--model`, `--effort`, `--sandbox`, `--image`, `--ephemeral`, `--schema`, `--add-dir`
+**Flags:** `--dir`, `--model`, `--effort`, `--sandbox`, `--image`, `--ephemeral`, `--schema`, `--add-dir` · transfer: `--source`, `--latest`
+**Env knobs:** `CODEX_HEARTBEAT_SECS` (30), `CODEX_RECOVER_ATTEMPTS` (3), `CODEX_RECOVER_BACKOFF` (30s, doubles), `CODEX_SESSIONS_DIR` (~/.codex/sessions), `CODEX_BIN` (codex), `CODEX_TRANSFER_TIMEOUT` (180s)
+
+Transfer notes (requires `python3`): codex only imports real transcripts under `~/.claude/projects` (snapshot copies are rejected), so the live file is imported. The imported thread id comes from the import's own `itemTypeResults` target (authoritative — immune to stale ledger records and concurrent transfers), with a hash-keyed ledger lookup as the old-protocol fallback. The imported thread keeps the working directory recorded **in the transcript** (`--dir` is advisory), and `resume` honours it via the rollout. For transfer, `CODEX_EXIT` is the bridge's exit code since the app-server is a long-lived process the bridge terminates by design. `CODEX_SESSIONS_DIR` defaults to `$CODEX_HOME/sessions`.
 
 ## How to Invoke
 
@@ -68,10 +80,58 @@ Bash(command='{base}/scripts/codex.sh think "Is this auth design scalable?" --di
 # → task_id
 
 TaskOutput(task_id="...", block=True, timeout=300000)
-# → SESSION: <uuid>\n---\n<response>
 ```
 
 For complex tasks, add structure (see `references/prompt-engineering.md` for templates). For simple asks, just describe what you need.
+
+## Canonical review schema
+
+For review-type `think` passes (adversarial reviews, omega A5-style bug hunts), prefer the canonical schema over ad-hoc ones so consumers can parse findings uniformly:
+
+```bash
+{base}/scripts/codex.sh think "<review prompt>" --schema {base}/schemas/review-output.schema.json --dir /project
+```
+
+Shape (adapted from openai/codex-plugin-cc, Apache-2.0): `verdict` (`approve`|`needs-attention`) · `summary` · `findings[]` with `severity` (critical/high/medium/low), `title`, `body`, `file`, `line_start`/`line_end`, `confidence` (0–1), `recommendation` · `next_steps[]`. Specialized passes with their own contract (e.g. omega's context-codex scope manifest) keep their dedicated schemas.
+
+## Output contract & failure handling
+
+Task output format (heartbeat lines appear while Codex runs, so a growing file = alive):
+
+```
+CODEX_START: mode=think model=default effort=xhigh dir=/project
+[codex 30s] <last activity line>          # one line per 30s (CODEX_HEARTBEAT_SECS)
+[codex recover] …                         # only when recovery kicks in
+[stderr tail — last 40 lines]             # only on failure, always ABOVE the block
+CODEX_EXIT: 0                             # codex process exit code
+CODEX_STATUS: ok                          # see table below
+SESSION: <uuid>
+---
+<final message — everything after the '---' line that follows SESSION:.
+ Empty on failure; diagnostics never appear below the delimiter.>
+```
+
+| Wrapper exit | CODEX_STATUS | Meaning |
+|---|---|---|
+| 0 | `ok` / `ok_recovered` | Final message captured (possibly via same-session recovery) |
+| 1 | `no_output` | Codex ran, no final message, cause unrecognised — stderr tail included |
+| 2 | `usage_error` | Bad args, incl. a `--session` id that isn't a UUID |
+| 3 | `capacity_exhausted` | A recoverable failure (at-capacity / stream error / 429) persisted through all recovery attempts — or no resumable session existed to recover from |
+| 4 | `session_not_found` / `wrong_session` | Resume target missing on disk, or the session that answered couldn't be verified as the one requested |
+| 1 | `transfer_failed` | `transfer` could not import (old CLI, timeout, per-item import failure) — diagnostics in the stderr tail |
+| 130 | `interrupted` | Wrapper received INT/TERM/HUP — codex child killed, block still emitted |
+
+When codex was never invoked (usage/preflight failures), the block carries sentinels: `CODEX_EXIT: -` and `SESSION: unknown` (`session_not_found` echoes the requested id when an explicit one was given; `--last` with no sessions and a missing transfer source report `unknown`). `resume --last` is resolved by the wrapper to the newest rollout on this machine (global, not cwd-filtered) and verified as strictly as `--session`. **Resume runs in the session's own recorded directory** (read from its rollout) unless `--dir` overrides — codex would otherwise re-root the thread at the caller's cwd. Prompts starting with `-` are safe: pass them after `--` and the wrapper forwards them positionally. The only block-less path is `codex.sh help` (usage text, exit 0).
+
+**Sandbox guarantees:** `think` runs read-only (`-s read-only`); `review` is FORCED read-only via `-c sandbox_mode="read-only"` (codex's review clones the current config's sandbox — a full-access user config would otherwise make reviews write-capable); capacity recovery carries the primary invocation's sandbox, so a read-only `think` can never recover as full-access.
+
+**Recovery is automatic, same-session, resume-only.** On a failed run (empty output or non-zero codex exit) classified as recoverable ("model at capacity" / stream error / 429), the wrapper resumes the SAME session carrying the same model/effort/schema (**never** a fallback model, never a from-scratch re-run) and asks it to emit the final answer it already computed: `CODEX_RECOVER_ATTEMPTS` (default 3) with doubling backoff from `CODEX_RECOVER_BACKOFF` (default 30s). A recovered result is flagged `ok_recovered`. Without a persisted session (`--ephemeral`, or codex died before creating one) there is no recovery — the wrapper exits 3 honestly. Resume identity fails closed for `--session` AND `--last`: output from an unverified or different session is refused (exit 4). `CODEX_START` is guaranteed to be the first line of every result, including usage/preflight failures.
+
+**Collection rules:**
+- **Never clip the output** (`| tail -N` has destroyed findings before) — Read the full task output file.
+- The final message is everything after the `---` line that follows `SESSION:` (empty on failure).
+- Check `CODEX_STATUS`/exit code before trusting the result; the wrapper no longer masks failures as success.
+- If the harness wake signal doesn't fire (known bug): the task output file's heartbeat lines make liveness checkable — poll the file mtime or `ps aux | grep 'codex exec'`.
 
 ## When Codex Shines
 
@@ -110,6 +170,15 @@ Launch multiple Codex tasks at once. Peek without blocking: `TaskOutput(task_id=
 
 If anything breaks, fix the skill files directly — you have authorization to edit anything under `{base}/`:
 - `scripts/codex.sh` — wrapper script
+- `scripts/transfer-bridge.py` — Claude→Codex session transfer (app-server JSON-RPC)
+- `schemas/review-output.schema.json` — canonical review schema
 - `SKILL.md` — this file
 - `references/cli-reference.md` — CLI flags
 - `references/prompt-engineering.md` — prompt templates
+- `tests/run-tests.sh` + `tests/stub-codex.sh` — regression matrix
+
+After ANY change to `scripts/codex.sh`, run the regression matrix (stub codex — no tokens spent) and keep it green:
+
+```bash
+{base}/tests/run-tests.sh
+```
