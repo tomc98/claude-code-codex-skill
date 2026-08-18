@@ -151,6 +151,26 @@ When codex was never invoked (usage/preflight failures), the block carries senti
 
 `ultra` requires Sol or Terra — `gpt-5.6-luna` caps at `max`. There is no `minimal` effort.
 
+### Subagent tiering on ultra runs
+
+`codex.sh` enables `multi_agent_v2` on every `--effort ultra` invocation (run/think and
+crash-recovery resumes), which adds optional `model` and `reasoning_effort` parameters to the
+session's internal `spawn_agent` tool. The root model only uses them when the dispatch prompt
+says so — include this directive (adapt the exceptions to the task) in every ultra dispatch:
+
+> Subagent tiering: spawn subagents with `model: "gpt-5.6-luna"`, `reasoning_effort: "xhigh"`
+> by default — recon, inventories, contract checks, focused reviews. Constraint: per-spawn
+> model/effort overrides require `fork_turns` of `"none"` or a bounded number (never
+> `"all"`), so pass the context the subagent needs in its `message`. Keep a subagent on the
+> root model (omit `model`) only when it genuinely needs a full-context fork or frontier
+> judgment.
+
+Why: luna is ~25× cheaper than sol per token and benchmarks near GPT-5.5-xhigh on scoped
+work, and ultra's internal fan-out is where most of an ultra run's spend goes. Verified
+2026-08-18 on codex-cli 0.147.0: `multi_agent_v2` is stable but default-off; with it on, the
+spawn schema accepts models `gpt-5.6-sol|terra|luna` (+5.5/5.4) and efforts up to `max` for
+luna (`ultra` stays sol/terra-only), and rejects overrides on `fork_turns: "all"`.
+
 ```bash
 {base}/scripts/codex.sh think "why does this deadlock under load?" --effort ultra --dir /project
 ```

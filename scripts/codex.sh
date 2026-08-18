@@ -315,6 +315,8 @@ build_recovery_cmd() { # $1 = session id — SAME model/effort/schema/SANDBOX as
     # recovering as full-access (resume derives permissions from the CURRENT
     # invocation, not the persisted thread)
     [ -n "$SANDBOX" ] && CMD+=(-c "sandbox_mode=\"$SANDBOX\"")
+    # features also derive from the CURRENT invocation — keep the v2 spawn schema on recovery
+    [ "$EFFORT" = "ultra" ] && CMD+=(-c 'features.multi_agent_v2=true')
     CMD+=(-o "$OUTPUT_FILE" -- "$1" "$RECOVERY_PROMPT")
 }
 
@@ -427,6 +429,9 @@ build_cmd() {
     [[ -n "$SCHEMA" ]]  && CMD+=(--output-schema "$SCHEMA")
     $EPHEMERAL           && CMD+=(--ephemeral)
     $SEARCH              && CMD+=(-c 'features.search_tool=true')
+    # ultra spawns subagents; multi_agent_v2 (stable, default-off as of 0.147.0) adds
+    # per-spawn model/reasoning_effort params so dispatch prompts can tier them (luna xhigh)
+    [[ "$EFFORT" == "ultra" ]] && CMD+=(-c 'features.multi_agent_v2=true')
 
     for img in "${IMAGES[@]}"; do
         CMD+=(-i "$img")
