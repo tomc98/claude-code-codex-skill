@@ -7,9 +7,9 @@
 # before session creation) = no recovery: an honest non-zero exit instead.
 #
 # Usage:
-#   codex.sh run "prompt" [--dir PATH] [--model MODEL] [--effort LEVEL] [--sandbox MODE] [--image FILE] [--ephemeral] [--schema FILE] [--add-dir PATH]
-#   codex.sh think "prompt" [--dir PATH] [--model MODEL] [--effort LEVEL] [--image FILE] [--ephemeral] [--schema FILE]
-#   codex.sh resume [--session ID | --last] "prompt" [--dir PATH]
+#   codex.sh run "prompt" [--dir PATH] [--model MODEL] [--effort LEVEL] [--sandbox MODE] [--image FILE] [--ephemeral] [--schema FILE] [--add-dir PATH] [--fast]
+#   codex.sh think "prompt" [--dir PATH] [--model MODEL] [--effort LEVEL] [--image FILE] [--ephemeral] [--schema FILE] [--fast]
+#   codex.sh resume [--session ID | --last] "prompt" [--dir PATH] [--fast]
 #   codex.sh review [--base BRANCH | --commit SHA | --uncommitted] ["custom instructions"]
 #   codex.sh transfer [--source <claude-jsonl> | --latest] [--dir PATH]
 #       Imports a Claude Code transcript (must live under ~/.claude/projects)
@@ -22,7 +22,7 @@
 #       CODEX_STATUS: transfer_failed. Env: CODEX_TRANSFER_TIMEOUT (180s).
 #
 # Output contract (stdout):
-#   CODEX_START: mode=… model=… effort=… dir=…
+#   CODEX_START: mode=… model=… effort=… tier=… dir=…
 #   [codex Ns] …           progress lines (heartbeat every CODEX_HEARTBEAT_SECS)
 #   [codex recover] …      progress lines (recovery attempts)
 #   [stderr tail …]        diagnostics — printed on failure only, BEFORE the block
@@ -54,6 +54,14 @@
 #   CODEX_RECOVER_BACKOFF   first backoff in seconds, doubling each attempt —
 #                           total worst-case wait = BACKOFF*(2^ATTEMPTS - 1) (default: 30)
 #   CODEX_SESSIONS_DIR      rollout root (default: ~/.codex/sessions)
+#   CODEX_DEFAULT_MODEL     model pinned on run/think when --model is absent
+#                           (default: gpt-6-astra — never inherited from config.toml)
+#   CODEX_DEFAULT_EFFORT    effort pinned on run/think when --effort is absent
+#                           (default: medium)
+#
+# Service tier: run/think/resume always pin service_tier="default" unless --fast
+# is passed. Fast mode costs 2x — it is an explicit per-run opt-in, never a
+# default and never inherited from a drifted config.toml.
 
 set -o pipefail
 
@@ -70,6 +78,8 @@ CODEX_SESSIONS_DIR="${CODEX_SESSIONS_DIR:-${CODEX_HOME:-$HOME/.codex}/sessions}"
 HEARTBEAT_SECS="${CODEX_HEARTBEAT_SECS:-30}"
 RECOVER_ATTEMPTS="${CODEX_RECOVER_ATTEMPTS:-3}"
 RECOVER_BACKOFF="${CODEX_RECOVER_BACKOFF:-30}"
+DEFAULT_MODEL="${CODEX_DEFAULT_MODEL:-gpt-6-astra}"
+DEFAULT_EFFORT="${CODEX_DEFAULT_EFFORT:-medium}"
 RECOVERY_PROMPT="Continue. Your previous turn was interrupted before the final answer was delivered (model capacity or stream error). Emit your complete final answer now."
 
 # Malformed numeric knobs fall back to defaults instead of breaking arithmetic;
@@ -90,6 +100,7 @@ REQUESTED_SID=""    # user-specified resume target; mismatch or unverifiable = h
 RESUME_MODE=false   # resume must always produce a verifiable session header
 MODE_NAME=""        # for the guaranteed CODEX_START line
 ANNOUNCED=false
+FAST=false          # --fast: service_tier="fast" (2x cost) — explicit opt-in only
 
 cleanup() {
     [ -n "$OUTPUT_FILE" ] && rm -f "$OUTPUT_FILE"
@@ -119,10 +130,13 @@ usage() {
         'Options:' \
         '  --dir PATH         Working directory (default: current; resume defaults' \
         '                     to the session'"'"'s own recorded directory)' \
-        '  --model MODEL      Override model (default: from config.toml)' \
+        '  --model MODEL      Override model (default: gpt-6-astra via CODEX_DEFAULT_MODEL;' \
+        '                     run/think never inherit the model from config.toml)' \
         '  --effort LEVEL     Reasoning effort: low|medium|high|xhigh|max|ultra' \
-        '                     (default xhigh for run/think; max/ultra are GPT-5.6+;' \
-        '                     ultra needs Sol or Terra)' \
+        '                     (default medium via CODEX_DEFAULT_EFFORT; ultra on' \
+        '                     gpt-6-astra / gpt-5.6-sol / gpt-5.6-terra; luna caps at max)' \
+        '  --fast             service_tier="fast" (2x cost, 2x speed). Explicit per-run' \
+        '                     opt-in only — without it the wrapper pins tier "default"' \
         '  --sandbox MODE     Sandbox: read-only|workspace-write|danger-full-access' \
         '  --image FILE       Attach an image (repeatable)' \
         '  --ephemeral        Do not persist session to disk. Disables capacity recovery' \
@@ -218,7 +232,7 @@ print_stderr_tail() {
 # including usage/preflight failures that never reach announce().
 ensure_announced() {
     if [ "$ANNOUNCED" != true ]; then
-        echo "CODEX_START: mode=${MODE_NAME:-unknown} model=${MODEL:-default} effort=${EFFORT:-config} dir=${DIR:-$PWD}"
+        echo "CODEX_START: mode=${MODE_NAME:-unknown} model=${MODEL:-default} effort=${EFFORT:-config} tier=$(tier_name) dir=${DIR:-$PWD}"
         ANNOUNCED=true
     fi
 }
@@ -306,6 +320,8 @@ codex_succeeded() {
     [ "${CODEX_EXIT_CODE:-1}" -eq 0 ] && grep -q '[^[:space:]]' "$OUTPUT_FILE" 2>/dev/null
 }
 
+tier_name() { $FAST && echo fast || echo default; }
+
 build_recovery_cmd() { # $1 = session id — SAME model/effort/schema/SANDBOX as the primary run
     CMD=("$CODEX_BIN" exec resume --skip-git-repo-check)
     [ -n "$MODEL" ]   && CMD+=(-m "$MODEL")
@@ -315,6 +331,7 @@ build_recovery_cmd() { # $1 = session id — SAME model/effort/schema/SANDBOX as
     # recovering as full-access (resume derives permissions from the CURRENT
     # invocation, not the persisted thread)
     [ -n "$SANDBOX" ] && CMD+=(-c "sandbox_mode=\"$SANDBOX\"")
+    CMD+=(-c "service_tier=\"$(tier_name)\"")   # same tier as the primary run — recovery never upgrades
     # features also derive from the CURRENT invocation — keep the v2 spawn schema on recovery
     [ "$EFFORT" = "ultra" ] && CMD+=(-c 'features.multi_agent_v2=true')
     CMD+=(-o "$OUTPUT_FILE" -- "$1" "$RECOVERY_PROMPT")
@@ -391,6 +408,7 @@ parse_common_flags() {
     SCHEMA=""
     ADD_DIRS=()
     SEARCH=false
+    FAST=false
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -407,6 +425,7 @@ parse_common_flags() {
             --schema)    need_value "$1" $#; SCHEMA="$2"; shift 2 ;;
             --add-dir)   need_value "$1" $#; ADD_DIRS+=("$2"); shift 2 ;;
             --search)    SEARCH=true; shift ;;
+            --fast)      FAST=true; shift ;;
             --*)         fail_usage "unknown flag '$1' (a prompt starting with '-'? pass it after --)" ;;
             *)
                 if [[ -z "$PROMPT" ]]; then
@@ -429,6 +448,7 @@ build_cmd() {
     [[ -n "$SCHEMA" ]]  && CMD+=(--output-schema "$SCHEMA")
     $EPHEMERAL           && CMD+=(--ephemeral)
     $SEARCH              && CMD+=(-c 'features.search_tool=true')
+    CMD+=(-c "service_tier=\"$(tier_name)\"")   # pinned: a drifted config.toml can never make a run fast
     # ultra spawns subagents; multi_agent_v2 (stable, default-off as of 0.147.0) adds
     # per-spawn model/reasoning_effort params so dispatch prompts can tier them (luna xhigh)
     [[ "$EFFORT" == "ultra" ]] && CMD+=(-c 'features.multi_agent_v2=true')
@@ -446,7 +466,7 @@ build_cmd() {
 
 announce() { # $1=mode — idempotent; a preflight message may have announced already
     [ "$ANNOUNCED" = true ] && return 0
-    echo "CODEX_START: mode=$1 model=${MODEL:-default} effort=${EFFORT:-config} dir=${DIR:-$PWD}"
+    echo "CODEX_START: mode=$1 model=${MODEL:-default} effort=${EFFORT:-config} tier=$(tier_name) dir=${DIR:-$PWD}"
     ANNOUNCED=true
 }
 
@@ -477,7 +497,8 @@ run_codex() {
 
     # Defaults for run: full-access sandbox, web search on, explicit effort
     [[ -z "$SANDBOX" ]] && SANDBOX="danger-full-access"
-    [[ -z "$EFFORT" ]]  && EFFORT="xhigh"
+    [[ -z "$MODEL" ]]   && MODEL="$DEFAULT_MODEL"
+    [[ -z "$EFFORT" ]]  && EFFORT="$DEFAULT_EFFORT"
     SEARCH=true
 
     build_cmd
@@ -497,7 +518,8 @@ think_codex() {
     # Sessions PERSIST (the old forced --ephemeral made every think session
     # unrecoverable and unresumable — pass --ephemeral explicitly to opt out).
     [[ -z "$SANDBOX" ]] && SANDBOX="read-only"
-    [[ -z "$EFFORT" ]]  && EFFORT="xhigh"
+    [[ -z "$MODEL" ]]   && MODEL="$DEFAULT_MODEL"
+    [[ -z "$EFFORT" ]]  && EFFORT="$DEFAULT_EFFORT"
     SEARCH=true
 
     build_cmd
@@ -513,6 +535,7 @@ resume_codex() {
     MODEL=""
     EFFORT=""
     SCHEMA=""
+    FAST=false
     local session_id="" use_last=false show_all=false
 
     while [[ $# -gt 0 ]]; do
@@ -525,6 +548,7 @@ resume_codex() {
             --last)     use_last=true; shift ;;
             --dir)      need_value "$1" $#; DIR="$2"; shift 2 ;;
             --all)      show_all=true; shift ;;   # legacy no-op: --last is wrapper-resolved globally now
+            --fast)     FAST=true; shift ;;
             --*)        fail_usage "unknown flag '$1' (a prompt starting with '-'? pass it after --)" ;;
             *)
                 if [[ -z "$PROMPT" ]]; then
@@ -595,7 +619,7 @@ resume_codex() {
     [[ -n "$last_note" ]] && echo "$last_note"
     [[ -n "$cwd_note" ]] && echo "$cwd_note"
     RUN_DIR="$DIR"   # resume has no -C flag; cd instead
-    CMD=("$CODEX_BIN" exec resume --skip-git-repo-check -o "$OUTPUT_FILE" -- "$session_id")
+    CMD=("$CODEX_BIN" exec resume --skip-git-repo-check -c "service_tier=\"$(tier_name)\"" -o "$OUTPUT_FILE" -- "$session_id")
     [[ -n "$PROMPT" ]] && CMD+=("$PROMPT")
 
     run_with_recovery
@@ -647,6 +671,7 @@ review_codex() {
     # review has no -s flag and CLONES the current config's sandbox — without
     # this override a full-access user config makes "read-only review" a lie
     CMD+=(-c 'sandbox_mode="read-only"')
+    FAST=false; CMD+=(-c 'service_tier="default"')   # review clones config too — never fast
     [[ -n "$base" ]]   && CMD+=(--base "$base")
     [[ -n "$commit" ]] && CMD+=(--commit "$commit")
     $uncommitted       && CMD+=(--uncommitted)

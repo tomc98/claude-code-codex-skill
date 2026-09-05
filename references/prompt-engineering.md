@@ -1,6 +1,6 @@
 # Prompt Engineering for Codex
 
-GPT-5.6 Sol at xhigh reasoning is an extraordinarily capable coding model. The quality of its output is directly proportional to the quality of the prompt. This guide covers how to craft prompts that get the most out of Codex.
+GPT-6 Astra is an extraordinarily capable coding model (default effort `medium`; raise `--effort` per task). The quality of its output is directly proportional to the quality of the prompt. This guide covers how to craft prompts that get the most out of Codex.
 
 ## Core Principles
 
@@ -27,6 +27,15 @@ Tell Codex exactly what you expect back — modified files, analysis, explanatio
 ### 4. Use Structured Prompts
 
 Organize complex tasks into clear sections. Codex parses structure well.
+
+### 5. Astra-specific clauses
+
+Astra (2026-09) differs from Sol in four ways that a prompt should pre-empt — see SKILL.md § Astra dispatch notes for the reasoning:
+
+- **Autonomy:** "State your assumptions and proceed. Do not stop to ask questions — there is no one to answer." (It prefers to ask; `exec` has no user.)
+- **Verification scope:** name the exact gate — "run `./verify.sh --fast` and `<test file>`; do not run the full suite." (It over-tests.)
+- **Delegation (ultra only):** "Parallelise X, Y, Z as luna subagents; keep W on the root." (It under-delegates.)
+- **Output shape:** "Answer in prose, no bullet lists" for a human reader; a `--schema` for a machine one. (It defaults to list walls.)
 
 ## Prompt Templates
 
@@ -56,6 +65,9 @@ CONSTRAINTS:
 
 ACCEPTANCE CRITERIA:
 - <How to verify this is correct>
+
+State your assumptions and proceed — do not stop to ask questions. Verify with
+<exact gate command>; do not run the full suite.
 ```
 
 ### Code Review
@@ -158,7 +170,8 @@ INVESTIGATION SO FAR:
 RELEVANT CODE:
 - `path/to/file.ts` — <the function/module involved>
 
-Fix the root cause, not just the symptom. Explain your reasoning.
+Fix the root cause, not just the symptom. Explain your reasoning. State your
+assumptions and proceed — do not stop to ask questions.
 ```
 
 ### Refactoring
