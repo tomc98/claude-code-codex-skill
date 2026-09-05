@@ -94,7 +94,8 @@ echo '{}' > "$TMP/schema.json"
 run_case recover capacity_then_resume_ok 0 ok_recovered -- think "test prompt" --model gpt-5.6-luna --schema "$TMP/schema.json"
 expect "recover: recovered content"        grep -q "RECOVERED FINAL" "$LAST_OUT"
 expect "recover: resume carried exact -m"     test "$(arg_after -m "$LAST_STATE.args.2")" = "gpt-5.6-luna"
-expect "recover: resume carried exact effort" test "$(arg_after -c "$LAST_STATE.args.2")" = 'model_reasoning_effort="xhigh"'
+expect "recover: resume carried exact effort" test "$(arg_after -c "$LAST_STATE.args.2")" = 'model_reasoning_effort="medium"'
+expect "recover: resume carried the TIER"    grep -qx -- 'service_tier="default"' "$LAST_STATE.args.2"
 expect "recover: resume carried exact schema" test "$(arg_after --output-schema "$LAST_STATE.args.2")" = "$TMP/schema.json"
 expect "recover: resume targeted our sid"     grep -qx -- "$SID" "$LAST_STATE.args.2"
 expect "recover: resume carried the SANDBOX"  grep -qx -- 'sandbox_mode="read-only"' "$LAST_STATE.args.2"
@@ -415,6 +416,41 @@ else
     FAIL=$((FAIL+1))
 fi
 check_envelope stubborn-signal "$stubout"
+
+# 34. defaults are PINNED, never inherited from config.toml: model gpt-6-astra,
+#     effort medium, service tier default — on both think and run
+run_case defaults ok 0 ok -- think "test prompt"
+expect "defaults: -m gpt-6-astra pinned"          test "$(arg_after -m "$LAST_STATE.args.1")" = "gpt-6-astra"
+expect "defaults: effort medium pinned"            grep -qx -- 'model_reasoning_effort="medium"' "$LAST_STATE.args.1"
+expect "defaults: tier default pinned"             grep -qx -- 'service_tier="default"' "$LAST_STATE.args.1"
+expect "defaults: CODEX_START names the model"     grep -q '^CODEX_START: mode=think model=gpt-6-astra effort=medium tier=default ' "$LAST_OUT"
+run_case defaults-run ok 0 ok -- run "test prompt"
+expect "defaults-run: -m gpt-6-astra pinned"       test "$(arg_after -m "$LAST_STATE.args.1")" = "gpt-6-astra"
+expect "defaults-run: effort medium pinned"        grep -qx -- 'model_reasoning_effort="medium"' "$LAST_STATE.args.1"
+expect "defaults-run: tier default pinned"         grep -qx -- 'service_tier="default"' "$LAST_STATE.args.1"
+
+# 35. env overrides for the pinned defaults; explicit flags still win over env
+run_case env-defaults ok 0 ok CODEX_DEFAULT_MODEL=gpt-5.6-sol CODEX_DEFAULT_EFFORT=high -- think "test prompt"
+expect "env-defaults: CODEX_DEFAULT_MODEL honoured"  test "$(arg_after -m "$LAST_STATE.args.1")" = "gpt-5.6-sol"
+expect "env-defaults: CODEX_DEFAULT_EFFORT honoured" grep -qx -- 'model_reasoning_effort="high"' "$LAST_STATE.args.1"
+run_case env-vs-flag ok 0 ok CODEX_DEFAULT_MODEL=gpt-5.6-sol -- think "test prompt" --model gpt-5.6-luna --effort xhigh
+expect "env-vs-flag: --model wins"                 test "$(arg_after -m "$LAST_STATE.args.1")" = "gpt-5.6-luna"
+expect "env-vs-flag: --effort wins"                grep -qx -- 'model_reasoning_effort="xhigh"' "$LAST_STATE.args.1"
+
+# 36. --fast is the ONLY way to get service_tier=fast, it is visible in CODEX_START,
+#     and capacity recovery carries the same tier (never upgrades, never downgrades)
+run_case fast-flag ok 0 ok -- think "test prompt" --fast
+expect "fast-flag: tier fast requested"            grep -qx -- 'service_tier="fast"' "$LAST_STATE.args.1"
+expect "fast-flag: no default tier alongside"      test "$(grep -c -- 'service_tier=' "$LAST_STATE.args.1")" = "1"
+expect "fast-flag: CODEX_START shows tier=fast"    grep -q '^CODEX_START: .* tier=fast ' "$LAST_OUT"
+mk_rollout fast-recover
+run_case fast-recover capacity_then_resume_ok 0 ok_recovered -- think "test prompt" --fast
+expect "fast-recover: recovery carried tier fast"  grep -qx -- 'service_tier="fast"' "$LAST_STATE.args.2"
+mk_rollout resume-tier
+run_case resume-tier ok 0 ok -- resume --session "$SID" "follow-up"
+expect "resume-tier: resume pins tier default"     grep -qx -- 'service_tier="default"' "$LAST_STATE.args.1"
+run_case review-tier ok_review 0 ok -- review --uncommitted
+expect "review-tier: review pins tier default"     grep -qx -- 'service_tier="default"' "$LAST_STATE.args.1"
 
 echo
 echo "==== $PASS passed, $FAIL failed ===="

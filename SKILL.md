@@ -1,6 +1,6 @@
 ---
 name: codex
-description: Delegate tasks to OpenAI Codex (GPT-5.6) as background tasks for precision coding, code review, deliberation, and complex implementation. Always launch in background (run_in_background=true), continue working, then collect results with TaskOutput when needed.
+description: Delegate tasks to OpenAI Codex (GPT-6 Astra) as background tasks for precision coding, code review, deliberation, and complex implementation. Always launch in background (run_in_background=true), continue working, then collect results with TaskOutput when needed.
 allowed-tools: Bash, Read, Grep, Glob, TaskOutput, Edit, Write
 ---
 
@@ -8,15 +8,18 @@ allowed-tools: Bash, Read, Grep, Glob, TaskOutput, Edit, Write
 
 > Paths below use `{base}` as shorthand for this skill's base directory, provided automatically at the top of the prompt when the skill loads.
 
-Codex is GPT-5.6 — a different model with a different reasoning manifold than Claude. It catches things you miss, thinks about problems differently, and arrives at solutions from a different angle. Use it as a genuine second brain, not just a subprocess. Its opinions, reviews, and implementations carry independent signal — when Codex disagrees with your approach, that disagreement is valuable.
+Codex is GPT-6 Astra — a different model with a different reasoning manifold than Claude. It catches things you miss, thinks about problems differently, and arrives at solutions from a different angle. Use it as a genuine second brain, not just a subprocess. Its opinions, reviews, and implementations carry independent signal — when Codex disagrees with your approach, that disagreement is valuable.
 
-GPT-5.6 ships as three tiers. `gpt-5.6-sol` is the default and the one you want almost always.
+`gpt-6-astra` is a single slug (no Sol/Terra/Luna tiers, no snapshots) and the wrapper's **pinned default** — `codex.sh` always passes `-m`, so `~/.codex/config.toml` no longer decides the model. Override per call with `--model`, or machine-wide with `CODEX_DEFAULT_MODEL`.
 
-| Tier | Slug | Use it for |
-|------|------|-----------|
-| **Sol** | `gpt-5.6-sol` | Flagship. The default — deep reasoning, review, hard implementation |
-| **Terra** | `gpt-5.6-terra` | Balanced everyday work at lower cost |
-| **Luna** | `gpt-5.6-luna` | Fast and cheap; simple, repeatable tasks |
+| Model | Slug | Use it for |
+|-------|------|-----------|
+| **GPT-6 Astra** | `gpt-6-astra` | The default. Frontier reasoning, review, hard implementation. 2.5× Sol per token ($10 in / $50 out per 1M), partly offset by fewer output tokens |
+| **GPT-5.6 Sol** | `gpt-5.6-sol` | Previous flagship — the cheaper fallback when Astra depth isn't needed |
+| **GPT-5.6 Terra** | `gpt-5.6-terra` | Balanced everyday work at lower cost |
+| **GPT-5.6 Luna** | `gpt-5.6-luna` | Fast and cheap; the subagent tier on ultra runs |
+
+Astra needs codex-cli ≥ 0.153.1 (`codex --version`). Its Codex-backend context window is 272K (`~/.codex/models_cache.json`), so the API's >272K long-context surcharge never applies through the CLI — it applies only to API-key use of the 1.05M window.
 
 Two modes of operation:
 
@@ -61,8 +64,8 @@ When unclear, default to **run**.
 {base}/scripts/codex.sh transfer --latest   # newest transcript on this machine
 ```
 
-**Flags:** `--dir`, `--model`, `--effort`, `--sandbox`, `--image`, `--ephemeral`, `--schema`, `--add-dir` · transfer: `--source`, `--latest`
-**Env knobs:** `CODEX_HEARTBEAT_SECS` (30), `CODEX_RECOVER_ATTEMPTS` (3), `CODEX_RECOVER_BACKOFF` (30s, doubles), `CODEX_SESSIONS_DIR` (~/.codex/sessions), `CODEX_BIN` (codex), `CODEX_TRANSFER_TIMEOUT` (180s)
+**Flags:** `--dir`, `--model`, `--effort`, `--sandbox`, `--image`, `--ephemeral`, `--schema`, `--add-dir`, `--fast` (explicit-permission only — see Fast mode) · transfer: `--source`, `--latest`
+**Env knobs:** `CODEX_DEFAULT_MODEL` (gpt-6-astra), `CODEX_DEFAULT_EFFORT` (medium), `CODEX_HEARTBEAT_SECS` (30), `CODEX_RECOVER_ATTEMPTS` (3), `CODEX_RECOVER_BACKOFF` (30s, doubles), `CODEX_SESSIONS_DIR` (~/.codex/sessions), `CODEX_BIN` (codex), `CODEX_TRANSFER_TIMEOUT` (180s)
 
 Transfer notes (requires `python3`): codex only imports real transcripts under `~/.claude/projects` (snapshot copies are rejected), so the live file is imported. The imported thread id comes from the import's own `itemTypeResults` target (authoritative — immune to stale ledger records and concurrent transfers), with a hash-keyed ledger lookup as the old-protocol fallback. The imported thread keeps the working directory recorded **in the transcript** (`--dir` is advisory), and `resume` honours it via the rollout. For transfer, `CODEX_EXIT` is the bridge's exit code since the app-server is a long-lived process the bridge terminates by design. `CODEX_SESSIONS_DIR` defaults to `$CODEX_HOME/sessions`.
 
@@ -99,7 +102,7 @@ Shape (adapted from openai/codex-plugin-cc, Apache-2.0): `verdict` (`approve`|`n
 Task output format (heartbeat lines appear while Codex runs, so a growing file = alive):
 
 ```
-CODEX_START: mode=think model=default effort=xhigh dir=/project
+CODEX_START: mode=think model=gpt-6-astra effort=medium tier=default dir=/project
 [codex 30s] <last activity line>          # one line per 30s (CODEX_HEARTBEAT_SECS)
 [codex recover] …                         # only when recovery kicks in
 [stderr tail — last 40 lines]             # only on failure, always ABOVE the block
@@ -138,18 +141,44 @@ When codex was never invoked (usage/preflight failures), the block carries senti
 - **Second opinion** — its different training means it spots different bugs, suggests different patterns, and flags things you'd overlook
 - **Adversarial review** — use `think` to challenge your own implementation. A different model questioning your code is more valuable than self-review
 - **Parallel expertise** — while you work on feature A, Codex implements feature B or researches approach C
-- **Deep reasoning tasks** — xhigh effort on complex algorithms, security analysis, architecture decisions
+- **Deep reasoning tasks** — raise `--effort` (xhigh/max) on complex algorithms, security analysis, architecture decisions
 
 ## Reasoning Effort
 
-`--effort` takes `low | medium | high | xhigh | max | ultra`. Default is `xhigh` for deep work.
+`--effort` takes `low | medium | high | xhigh | max | ultra`. **Default is `medium`** (Tom, 2026-09-05 — Astra's per-token price makes depth-by-default a spend multiplier; `CODEX_DEFAULT_EFFORT` changes the machine-wide default). Escalate per task, never as a skill default: `high`/`xhigh` for real review and hard implementation, `max`/`ultra` only when the task earns it. There is no `none`/`minimal` — both 400.
 
-`max` and `ultra` are new in GPT-5.6 and sit above `xhigh`:
+`max` and `ultra` sit above `xhigh`:
 
 - **`max`** — maximum depth within a single turn. Reach for it on genuinely hard problems where `xhigh` returned something shallow. Cost is higher but bounded.
 - **`ultra`** — maximum depth *plus* automatic task delegation: Codex decomposes the problem and spawns internal sub-agents. Escalate to it only when the task genuinely warrants it — a large refactor, a subtle cross-cutting bug, an architecture decision with many interacting constraints. Token spend is substantially higher and harder to predict, so don't make it a default.
 
-`ultra` requires Sol or Terra — `gpt-5.6-luna` caps at `max`. There is no `minimal` effort.
+`ultra` runs on `gpt-6-astra`, `gpt-5.6-sol` and `gpt-5.6-terra` — `gpt-5.6-luna` caps at `max`. (Astra + ultra verified 2026-09-05 on codex-cli 0.153.3 via an ephemeral `think`: `CODEX_STATUS: ok`; the API docs list only up to `max` because `ultra` is a Codex-backend effort, not an API one.) `minimal` is not in the ladder and 400s with `unsupported_value` despite years of docs claiming otherwise.
+
+**FOOTGUN — a bare `codex exec` rewrites `~/.codex/config.toml`.** Running `codex exec -m <model> -c model_reasoning_effort="<effort>"` **persists that model and effort as the GLOBAL defaults**. One probe with `--effort ultra` left `model_reasoning_effort = "ultra"` in the config and would have made ultra the default for every skill that doesn't pass `-m` explicitly. `codex.sh` run/think/review/resume are immune — they pin model, effort AND service tier on every invocation, so a drifted config.toml cannot change what they run — but after ANY direct-CLI probing: re-read `~/.codex/config.toml` and restore it (other tools still read it). The live half of the footgun: `codex exec resume` applies the CURRENT config.toml defaults, NOT the session's recorded effort (upstream openai/codex#32061 — model mismatches warn, effort swaps silently), so a drifted default silently downgrades every resumed round. (`~/.codex/models_cache.json` is the source of truth for which slugs the account can actually reach — delete it to force a refetch.)
+
+### Subagent tiering on ultra runs
+
+`codex.sh` enables `multi_agent_v2` on every `--effort ultra` invocation (run/think and
+crash-recovery resumes), which adds optional `model` and `reasoning_effort` parameters to the
+session's internal `spawn_agent` tool. The root model only uses them when the dispatch prompt
+says so — include this directive (adapt the exceptions to the task) in every ultra dispatch:
+
+> Subagent tiering: spawn subagents with `model: "gpt-5.6-luna"`, `reasoning_effort: "medium"`
+> by default — recon, inventories, contract checks, focused reviews; raise a subagent to
+> `high`/`xhigh` only when its subtask needs it. Constraint: per-spawn
+> model/effort overrides require `fork_turns` of `"none"` or a bounded number (never
+> `"all"`), so pass the context the subagent needs in its `message`. Keep a subagent on the
+> root model (omit `model`) only when it genuinely needs a full-context fork or frontier
+> judgment.
+
+Why: luna is ~60× cheaper than Astra per token and benchmarks near GPT-5.5-xhigh on scoped
+work, and ultra's internal fan-out is where most of an ultra run's spend goes. Astra also
+tends to UNDER-delegate — say explicitly in the dispatch when and how much to parallelise.
+Verified 2026-08-18 on codex-cli 0.147.0: `multi_agent_v2` is stable but default-off; with it
+on, the spawn schema accepts models `gpt-5.6-sol|terra|luna` (+5.5/5.4) and efforts up to
+`max` for luna, and rejects overrides on `fork_turns: "all"`. Re-verified 2026-09-05 on
+0.153.3 that an Astra root accepts `--effort ultra`; the spawn schema's model list was not
+re-probed (subagents stay on luna regardless).
 
 ### Subagent tiering on ultra runs
 
@@ -174,6 +203,21 @@ luna (`ultra` stays sol/terra-only), and rejects overrides on `fork_turns: "all"
 ```bash
 {base}/scripts/codex.sh think "why does this deadlock under load?" --effort ultra --dir /project
 ```
+
+### Fast mode — explicit permission only
+
+`service_tier = "fast"` is 2× the price for ~2× the speed, no latency SLA, unavailable under EU data residency. **The wrapper pins `service_tier="default"` on every run/think/review/resume and on capacity recovery**, so a drifted config.toml can never make a run fast. The only way in is `--fast`, and `--fast` is used ONLY after Tom's explicit yes in the current session — same posture as `FABLE_OPT_IN` / `GIT_GUARD_ALLOW`: never a default, never inferred from "make it quick", quoted in the daily note like any spend opt-in. `CODEX_START` prints `tier=fast` when it fires, so the trace can't hide it.
+
+### Astra dispatch notes
+
+Astra behaves differently from Sol in ways that change how you write the prompt (OpenAI migration guide, 2026-09):
+
+- **It asks clarifying questions instead of assuming.** `exec` has no user to answer them. Tell it: state assumptions and proceed; never stop to ask.
+- **It over-tests small changes.** Calibrate verification scope in the prompt — "run `./verify.sh --fast` and the targeted test file, not the suite".
+- **It under-delegates on `ultra`.** Say when and how much to parallelise, or it does the work serially on the root model.
+- **It emits list-heavy, formatted output with recurring phrases.** Ask for prose when a human reads the result; a schema when a script does.
+- **It weights AGENTS.md / CLAUDE.md / skill text heavily.** Sophiie worktrees load `CLAUDE.md` via `project_doc_fallback_filenames`, so a stale "do not start coding" banner in `CLAUDE.local.md` now bites harder — clear it before dispatch.
+- **Standard access refuses advanced offensive-cyber tasks** (first "Critical"-rated model). A security-review prompt should ask for the defect and the fix, not a working exploit.
 
 ## When NOT to Use Codex
 
