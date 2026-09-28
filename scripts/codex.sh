@@ -9,7 +9,7 @@
 # Usage:
 #   codex.sh run "prompt" [--dir PATH] [--model MODEL] [--effort LEVEL] [--sandbox MODE] [--image FILE] [--ephemeral] [--schema FILE] [--add-dir PATH] [--fast]
 #   codex.sh think "prompt" [--dir PATH] [--model MODEL] [--effort LEVEL] [--image FILE] [--ephemeral] [--schema FILE] [--fast]
-#   codex.sh resume [--session ID | --last] "prompt" [--dir PATH] [--fast]
+#   codex.sh resume [--session ID | --last] "prompt" [--dir PATH] [--model MODEL] [--effort LEVEL] [--fast]
 #   codex.sh review [--base BRANCH | --commit SHA | --uncommitted] ["custom instructions"]
 #   codex.sh transfer [--source <claude-jsonl> | --latest] [--dir PATH]
 #       Imports a Claude Code transcript (must live under ~/.claude/projects)
@@ -54,9 +54,9 @@
 #   CODEX_RECOVER_BACKOFF   first backoff in seconds, doubling each attempt —
 #                           total worst-case wait = BACKOFF*(2^ATTEMPTS - 1) (default: 30)
 #   CODEX_SESSIONS_DIR      rollout root (default: ~/.codex/sessions)
-#   CODEX_DEFAULT_MODEL     model pinned on run/think when --model is absent
+#   CODEX_DEFAULT_MODEL     model pinned on run/think/resume when --model is absent
 #                           (default: gpt-6-astra — never inherited from config.toml)
-#   CODEX_DEFAULT_EFFORT    effort pinned on run/think when --effort is absent
+#   CODEX_DEFAULT_EFFORT    effort pinned on run/think/resume when --effort is absent
 #                           (default: medium)
 #
 # Service tier: run/think/resume always pin service_tier="default" unless --fast
@@ -131,10 +131,12 @@ usage() {
         '  --dir PATH         Working directory (default: current; resume defaults' \
         '                     to the session'"'"'s own recorded directory)' \
         '  --model MODEL      Override model (default: gpt-6-astra via CODEX_DEFAULT_MODEL;' \
-        '                     run/think never inherit the model from config.toml)' \
+        '                     run/think/resume never inherit the model from config.toml)' \
         '  --effort LEVEL     Reasoning effort: low|medium|high|xhigh|max|ultra' \
         '                     (default medium via CODEX_DEFAULT_EFFORT; ultra on' \
-        '                     gpt-6-astra / gpt-5.6-sol / gpt-5.6-terra; luna caps at max)' \
+        '                     gpt-6-astra / gpt-5.6-sol / gpt-5.6-terra; luna caps at max).' \
+        '                     resume pins both too — codex would otherwise run a resumed' \
+        '                     turn at config.toml'"'"'s effort, not the session'"'"'s' \
         '  --fast             service_tier="fast" (2x cost, 2x speed). Explicit per-run' \
         '                     opt-in only — without it the wrapper pins tier "default"' \
         '  --sandbox MODE     Sandbox: read-only|workspace-write|danger-full-access' \
@@ -532,8 +534,10 @@ think_codex() {
 resume_codex() {
     PROMPT=""
     DIR=""
-    MODEL=""
-    EFFORT=""
+    # Defaults up front so even a preflight failure's CODEX_START shows the
+    # real effort; re-applied after parsing in case a flag passed ""
+    MODEL="$DEFAULT_MODEL"
+    EFFORT="$DEFAULT_EFFORT"
     SCHEMA=""
     FAST=false
     local session_id="" use_last=false show_all=false
@@ -547,6 +551,8 @@ resume_codex() {
             --session)  need_value "$1" $#; session_id="$2"; shift 2 ;;
             --last)     use_last=true; shift ;;
             --dir)      need_value "$1" $#; DIR="$2"; shift 2 ;;
+            --model)    need_value "$1" $#; MODEL="$2"; shift 2 ;;
+            --effort)   need_value "$1" $#; EFFORT="$2"; shift 2 ;;
             --all)      show_all=true; shift ;;   # legacy no-op: --last is wrapper-resolved globally now
             --fast)     FAST=true; shift ;;
             --*)        fail_usage "unknown flag '$1' (a prompt starting with '-'? pass it after --)" ;;
@@ -559,6 +565,9 @@ resume_codex() {
                 shift ;;
         esac
     done
+
+    [[ -z "$MODEL" ]]  && MODEL="$DEFAULT_MODEL"
+    [[ -z "$EFFORT" ]] && EFFORT="$DEFAULT_EFFORT"
 
     if [[ -z "$session_id" ]] && ! $use_last; then
         fail_usage "specify --session ID or --last"
@@ -619,7 +628,11 @@ resume_codex() {
     [[ -n "$last_note" ]] && echo "$last_note"
     [[ -n "$cwd_note" ]] && echo "$cwd_note"
     RUN_DIR="$DIR"   # resume has no -C flag; cd instead
-    CMD=("$CODEX_BIN" exec resume --skip-git-repo-check -c "service_tier=\"$(tier_name)\"" -o "$OUTPUT_FILE" -- "$session_id")
+    # codex exec resume applies config.toml's model/effort, NOT the session's
+    # recorded ones — pin both, exactly as build_recovery_cmd does
+    CMD=("$CODEX_BIN" exec resume --skip-git-repo-check -m "$MODEL" -c "model_reasoning_effort=\"$EFFORT\"" -c "service_tier=\"$(tier_name)\"")
+    [[ "$EFFORT" == "ultra" ]] && CMD+=(-c 'features.multi_agent_v2=true')
+    CMD+=(-o "$OUTPUT_FILE" -- "$session_id")
     [[ -n "$PROMPT" ]] && CMD+=("$PROMPT")
 
     run_with_recovery

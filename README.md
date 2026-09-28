@@ -61,7 +61,7 @@ sandbox_mode = "danger-full-access"
 service_tier = "default"
 ```
 
-The wrapper does not rely on these for `run`/`think`: it pins the model (`CODEX_DEFAULT_MODEL`, default `gpt-6-astra`), the effort (`CODEX_DEFAULT_EFFORT`, default `medium`) and `service_tier="default"` on every invocation. Override per-invocation with `--model`, `--effort`, or `--sandbox`; `--fast` (2× cost) is an explicit opt-in, never a default.
+The wrapper does not rely on these for `run`/`think`/`resume`: it pins the model (`CODEX_DEFAULT_MODEL`, default `gpt-6-astra`), the effort (`CODEX_DEFAULT_EFFORT`, default `medium`) and `service_tier="default"` on every invocation. Override per-invocation with `--model`, `--effort`, or `--sandbox`; `--fast` (2× cost) is an explicit opt-in, never a default.
 
 ## File Structure
 

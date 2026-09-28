@@ -8,6 +8,8 @@ TMP="$(mktemp -d "${TMPDIR:-/tmp}/codex-test.XXXXXX")" || { echo "FATAL: mktemp 
 [ -n "$TMP" ] && [ -d "$TMP" ] || { echo "FATAL: bad TMP"; exit 1; }
 TMP="$(cd "$TMP" && pwd)"   # normalize (macOS TMPDIR ends in '/', yielding '//' paths)
 SID="019f0000-0000-7000-8000-000000000001"
+# Hermetic: the live shell may pin CODEX_DEFAULT_* (Tom's env does) — cases set them explicitly
+unset CODEX_DEFAULT_MODEL CODEX_DEFAULT_EFFORT
 PASS=0; FAIL=0
 LAST_OUT=""; LAST_STATE=""
 
@@ -451,6 +453,56 @@ run_case resume-tier ok 0 ok -- resume --session "$SID" "follow-up"
 expect "resume-tier: resume pins tier default"     grep -qx -- 'service_tier="default"' "$LAST_STATE.args.1"
 run_case review-tier ok_review 0 ok -- review --uncommitted
 expect "review-tier: review pins tier default"     grep -qx -- 'service_tier="default"' "$LAST_STATE.args.1"
+
+# 37. resume pins model + effort. codex exec resume applies config.toml's
+#     effort, not the session's, so an unpinned resume silently ran at medium.
+mk_rollout resume-defaults
+run_case resume-defaults ok 0 ok CODEX_DEFAULT_MODEL=gpt-5.6-sol CODEX_DEFAULT_EFFORT=max -- resume --session "$SID" "follow-up"
+expect "resume-defaults: CODEX_DEFAULT_MODEL pinned"   test "$(arg_after -m "$LAST_STATE.args.1")" = "gpt-5.6-sol"
+expect "resume-defaults: CODEX_DEFAULT_EFFORT pinned"  grep -qx -- 'model_reasoning_effort="max"' "$LAST_STATE.args.1"
+expect "resume-defaults: CODEX_START shows real effort" grep -q '^CODEX_START: mode=resume model=gpt-5.6-sol effort=max ' "$LAST_OUT"
+expect "resume-defaults: no multi_agent_v2 below ultra" bash -c '! grep -q multi_agent_v2 "'"$LAST_STATE.args.1"'"'
+expect "resume-defaults: session id still the target"  grep -qx -- "$SID" "$LAST_STATE.args.1"
+expect "resume-defaults: prompt is the last argv"      test "$(tail -1 "$LAST_STATE.args.1")" = "follow-up"
+mk_rollout resume-flags
+run_case resume-flags ok 0 ok CODEX_DEFAULT_MODEL=gpt-5.6-sol CODEX_DEFAULT_EFFORT=max -- resume --session "$SID" --model gpt-5.6-luna --effort high "follow-up"
+expect "resume-flags: --model wins over env"           test "$(arg_after -m "$LAST_STATE.args.1")" = "gpt-5.6-luna"
+expect "resume-flags: --effort wins over env"          grep -qx -- 'model_reasoning_effort="high"' "$LAST_STATE.args.1"
+expect "resume-flags: exactly one effort pin"          test "$(grep -c -- 'model_reasoning_effort=' "$LAST_STATE.args.1")" = "1"
+mk_rollout resume-ultra
+run_case resume-ultra ok 0 ok -- resume --session "$SID" --effort ultra "follow-up"
+expect "resume-ultra: multi_agent_v2 enabled"          grep -qx -- 'features.multi_agent_v2=true' "$LAST_STATE.args.1"
+mk_rollout resume-empty-effort
+run_case resume-empty-effort ok 0 ok CODEX_DEFAULT_EFFORT=max -- resume --session "$SID" --effort "" "follow-up"
+expect "resume-empty-effort: empty value falls back"   grep -qx -- 'model_reasoning_effort="max"' "$LAST_STATE.args.1"
+mk_rollout resume-recover
+run_case resume-recover capacity_then_resume_ok 0 ok_recovered CODEX_DEFAULT_EFFORT=max -- resume --session "$SID" --effort xhigh "follow-up"
+expect "resume-recover: recovery carried the effort"   grep -qx -- 'model_reasoning_effort="xhigh"' "$LAST_STATE.args.2"
+expect "resume-recover: recovery carried the model"    test "$(arg_after -m "$LAST_STATE.args.2")" = "gpt-6-astra"
+run_case resume-effort-novalue ok 2 usage_error -- resume --session "$SID" --effort
+expect "resume-effort-novalue: stub not called"        test "$(cat "$LAST_STATE")" = "0"
+expect "resume-effort-novalue: need_value diagnostic"  grep -q "flag --effort requires a value" "$LAST_OUT"
+run_case resume-model-novalue ok 2 usage_error -- resume --session "$SID" --model
+expect "resume-model-novalue: need_value diagnostic"   grep -q "flag --model requires a value" "$LAST_OUT"
+run_case resume-parse-effort ok 2 usage_error CODEX_DEFAULT_EFFORT=max -- resume --bogus
+expect "resume-parse-effort: parse error shows real effort" grep -q '^CODEX_START: .* effort=max ' "$LAST_OUT"
+# ordered argv: options before -o, exact tail -o FILE -- SID PROMPT; a
+# dash-leading prompt after -- with --fast still lands as the positional prompt
+mk_rollout resume-order
+run_case resume-order ok 0 ok CODEX_DEFAULT_EFFORT=max -- resume --session "$SID" --fast --effort xhigh -- "-dash prompt"
+A="$LAST_STATE.args.1"
+expect "resume-order: effort value adjacent to -c"     test "$(grep -n -x -- 'model_reasoning_effort="xhigh"' "$A" | cut -d: -f1)" = "$(( $(grep -n -x -- '-c' "$A" | head -1 | cut -d: -f1) + 1 ))"
+expect "resume-order: -m before -o"                    test "$(grep -n -x -- '-m' "$A" | cut -d: -f1)" -lt "$(grep -n -x -- '-o' "$A" | cut -d: -f1)"
+expect "resume-order: tail is -o FILE -- SID PROMPT"   bash -c 'tail -5 "'"$A"'" | { read o; read f; read dd; read sid; read pr; [ "$o" = "-o" ] && [ -n "$f" ] && [ "$dd" = "--" ] && [ "$sid" = "'"$SID"'" ] && [ "$pr" = "-dash prompt" ]; }'
+expect "resume-order: --fast tier carried"             grep -qx -- 'service_tier="fast"' "$A"
+mk_rollout resume-last-effort
+run_case resume-last-effort ok 0 ok CODEX_DEFAULT_EFFORT=max -- resume --last "hi"
+expect "resume-last-effort: --last resume pins effort" grep -qx -- 'model_reasoning_effort="max"' "$LAST_STATE.args.1"
+mk_rollout resume-ultra-recover
+run_case resume-ultra-recover capacity_then_resume_ok 0 ok_recovered -- resume --session "$SID" --effort ultra "hi"
+expect "resume-ultra-recover: recovery keeps multi_agent_v2" grep -qx -- 'features.multi_agent_v2=true' "$LAST_STATE.args.2"
+run_case resume-preflight-effort ok 2 usage_error CODEX_DEFAULT_EFFORT=max -- resume --session "not-a-uuid" "hi"
+expect "resume-preflight-effort: CODEX_START never effort=config" grep -q '^CODEX_START: .* effort=max ' "$LAST_OUT"
 
 echo
 echo "==== $PASS passed, $FAIL failed ===="

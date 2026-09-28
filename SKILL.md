@@ -55,6 +55,11 @@ When unclear, default to **run**.
 # Resume a previous session (think and run both persist now)
 {base}/scripts/codex.sh resume --last "follow-up instruction"
 {base}/scripts/codex.sh resume --session <SESSION_ID> "follow-up"
+{base}/scripts/codex.sh resume --session <SESSION_ID> --effort xhigh "follow-up"
+# resume pins model + effort like run/think: --model/--effort, else
+# CODEX_DEFAULT_MODEL/CODEX_DEFAULT_EFFORT. It does NOT inherit the session's
+# round-1 values — repeat --model when resuming a non-default-model session.
+# resume still rejects --schema / --add-dir / --sandbox (pin output shape inline).
 
 # Transfer the CURRENT Claude session into a persistent Codex thread
 # (source must be a transcript under ~/.claude/projects; SESSION: in the
@@ -154,7 +159,7 @@ When codex was never invoked (usage/preflight failures), the block carries senti
 
 `ultra` runs on `gpt-6-astra`, `gpt-5.6-sol` and `gpt-5.6-terra` — `gpt-5.6-luna` caps at `max`. (Astra + ultra verified 2026-09-05 on codex-cli 0.153.3 via an ephemeral `think`: `CODEX_STATUS: ok`; the API docs list only up to `max` because `ultra` is a Codex-backend effort, not an API one.) `minimal` is not in the ladder and 400s with `unsupported_value` despite years of docs claiming otherwise.
 
-**FOOTGUN — a bare `codex exec` rewrites `~/.codex/config.toml`.** Running `codex exec -m <model> -c model_reasoning_effort="<effort>"` **persists that model and effort as the GLOBAL defaults**. One probe with `--effort ultra` left `model_reasoning_effort = "ultra"` in the config and would have made ultra the default for every skill that doesn't pass `-m` explicitly. `codex.sh` run/think/review/resume are immune — they pin model, effort AND service tier on every invocation, so a drifted config.toml cannot change what they run — but after ANY direct-CLI probing: re-read `~/.codex/config.toml` and restore it (other tools still read it). The live half of the footgun: `codex exec resume` applies the CURRENT config.toml defaults, NOT the session's recorded effort (upstream openai/codex#32061 — model mismatches warn, effort swaps silently), so a drifted default silently downgrades every resumed round. (`~/.codex/models_cache.json` is the source of truth for which slugs the account can actually reach — delete it to force a refetch.)
+**FOOTGUN — a bare `codex exec` rewrites `~/.codex/config.toml`.** Running `codex exec -m <model> -c model_reasoning_effort="<effort>"` **persists that model and effort as the GLOBAL defaults**. One probe with `--effort ultra` left `model_reasoning_effort = "ultra"` in the config and would have made ultra the default for every skill that doesn't pass `-m` explicitly. `codex.sh` run/think/resume are immune — they pin model, effort AND service tier on every invocation, so a drifted config.toml cannot change what they run (resume only since 2026-09-29: before that it pinned tier alone and every resumed turn ran at config.toml's effort; `review` still pins only the tier) — but after ANY direct-CLI probing: re-read `~/.codex/config.toml` and restore it (other tools still read it). The live half of the footgun: `codex exec resume` applies the CURRENT config.toml defaults, NOT the session's recorded effort (upstream openai/codex#32061 — model mismatches warn, effort swaps silently), so a drifted default silently downgrades every resumed round that doesn't pin — which is why the wrapper's resume now pins both. Verify any round's real effort from the rollout: `turn_context.payload.effort`, grouped by `turn_id`. (`~/.codex/models_cache.json` is the source of truth for which slugs the account can actually reach — delete it to force a refetch.)
 
 ### Subagent tiering on ultra runs
 
