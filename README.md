@@ -1,6 +1,6 @@
 # codex
 
-A [Claude Code](https://docs.anthropic.com/en/docs/claude-code) skill that delegates tasks to [OpenAI Codex CLI](https://github.com/openai/codex) (GPT-6 Astra) for precision coding, code review, deliberation, and complex implementation.
+A [Claude Code](https://docs.anthropic.com/en/docs/claude-code) skill that delegates tasks to [OpenAI Codex CLI](https://github.com/openai/codex) (GPT-6.1 Sol) for precision coding, code review, deliberation, and complex implementation.
 
 Codex runs as a background agent — launch a task, continue working, and collect results when ready.
 
@@ -55,13 +55,13 @@ Once installed, Claude Code uses this skill automatically when delegating to Cod
 Codex is configured via `~/.codex/config.toml`. Recommended defaults:
 
 ```toml
-model = "gpt-6-astra"
+model = "gpt-6.1-sol"
 model_reasoning_effort = "medium"
 sandbox_mode = "danger-full-access"
 service_tier = "default"
 ```
 
-The wrapper does not rely on these for `run`/`think`/`resume`: it pins the model (`CODEX_DEFAULT_MODEL`, default `gpt-6-astra`), the effort (`CODEX_DEFAULT_EFFORT`, default `medium`) and `service_tier="default"` on every invocation. Override per-invocation with `--model`, `--effort`, or `--sandbox`; `--fast` (2× cost) is an explicit opt-in, never a default.
+The wrapper does not rely on these for `run`/`think`/`resume`: it pins the model (`CODEX_DEFAULT_MODEL`, default `gpt-6.1-sol`), the effort (`CODEX_DEFAULT_EFFORT`, default `medium`) and `service_tier="default"` on every invocation. Override per-invocation with `--model`, `--effort`, or `--sandbox`; `--fast` (2× cost) is an explicit opt-in, never a default.
 
 ## File Structure
 

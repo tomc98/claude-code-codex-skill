@@ -49,7 +49,7 @@
 
 ```bash
 # Model and reasoning
--c model="gpt-6-astra"
+-c model="gpt-6.1-sol"
 -c model_reasoning_effort="medium"     # low|medium|high|xhigh|max|ultra
 -c service_tier="default"              # default|fast — codex.sh pins "default"; --fast is Tom's-explicit-yes only
 -c model_reasoning_summary="detailed"   # auto|concise|detailed|none
@@ -66,11 +66,13 @@
 
 ## Models
 
-GPT-6 Astra is a single slug; GPT-5.6 ships as three capability tiers — the generation number and the tier name advance independently.
+GPT-6.1 Sol and GPT-6 Astra are single slugs; GPT-5.6 ships as three capability tiers — the generation number and the tier name advance independently.
 
 | Model | Use Case |
 |-------|----------|
-| `gpt-6-astra` | Frontier (2026-09-03). **The default** — codex.sh pins it; needs codex-cli ≥ 0.153.1. 2.5× Sol pricing; 272K Codex-backend window |
+| `gpt-6.1-sol` | Workhorse (2026-09-29). **The default** — codex.sh pins it; needs codex-cli ≥ 0.159. Near-Astra on agentic coding at a fifth of the price; 272K Codex-backend window |
+| `gpt-6-astra` | Frontier (2026-09-03). Needs codex-cli ≥ 0.153.1. 5× 6.1 Sol pricing; 272K Codex-backend window |
+| `gpt-6-sol` | Superseded by `gpt-6.1-sol` |
 | `gpt-5.6-sol` | Previous flagship agentic coding model; the cheaper fallback |
 | `gpt-5.6-terra` | Balanced everyday work, lower cost |
 | `gpt-5.6-luna` | Fast and affordable; caps at `max` effort; the ultra subagent tier |
@@ -79,7 +81,7 @@ GPT-6 Astra is a single slug; GPT-5.6 ships as three capability tiers — the ge
 | `gpt-5.4-mini` | Small, fast, cost-efficient |
 | `gpt-5.3-codex-spark` | Ultra-fast, text-only; not available via API |
 
-There is no bare `gpt-5.6` slug — always name a tier. There is no `gpt-6` slug either — it is `gpt-6-astra`.
+There is no bare `gpt-5.6` slug — always name a tier. There is no `gpt-6` slug either — name `gpt-6.1-sol` or `gpt-6-astra`.
 
 To see exactly what your account can reach, read `~/.codex/models_cache.json`; the CLI refreshes it from OpenAI and it is the source of truth. Slugs that have aged out (`gpt-5.3-codex`, `gpt-5.5-pro`, `gpt-5.1-codex-mini`, `gpt-5.1-codex-max`) now fail with a 400.
 
@@ -94,7 +96,7 @@ To see exactly what your account can reach, read `~/.codex/models_cache.json`; t
 | `max` | Maximum single-turn depth for the hardest problems |
 | `ultra` | Maximum depth + automatic task delegation to internal sub-agents |
 
-codex.sh's default is `medium` (`CODEX_DEFAULT_EFFORT`). `ultra` runs on Astra, Sol and Terra — Luna caps at `max` (Astra+ultra verified 2026-09-05 on 0.153.3). `none` and `minimal` are **not** valid efforts and will 400.
+codex.sh's default is `medium` (`CODEX_DEFAULT_EFFORT`). `ultra` runs on 6.1 Sol, Astra, 5.6 Sol and Terra — Luna caps at `max` (Astra+ultra verified 2026-09-05 on 0.153.3). `none` and `minimal` are **not** valid efforts and will 400.
 
 Escalate to `ultra` only when the task warrants it: it spawns sub-agents, so token spend is markedly higher and less predictable. Consider pairing it with `rollout_token_budget`.
 

@@ -55,7 +55,7 @@
 #                           total worst-case wait = BACKOFF*(2^ATTEMPTS - 1) (default: 30)
 #   CODEX_SESSIONS_DIR      rollout root (default: ~/.codex/sessions)
 #   CODEX_DEFAULT_MODEL     model pinned on run/think/resume when --model is absent
-#                           (default: gpt-6-astra — never inherited from config.toml)
+#                           (default: gpt-6.1-sol — never inherited from config.toml)
 #   CODEX_DEFAULT_EFFORT    effort pinned on run/think/resume when --effort is absent
 #                           (default: medium)
 #
@@ -78,7 +78,7 @@ CODEX_SESSIONS_DIR="${CODEX_SESSIONS_DIR:-${CODEX_HOME:-$HOME/.codex}/sessions}"
 HEARTBEAT_SECS="${CODEX_HEARTBEAT_SECS:-30}"
 RECOVER_ATTEMPTS="${CODEX_RECOVER_ATTEMPTS:-3}"
 RECOVER_BACKOFF="${CODEX_RECOVER_BACKOFF:-30}"
-DEFAULT_MODEL="${CODEX_DEFAULT_MODEL:-gpt-6-astra}"
+DEFAULT_MODEL="${CODEX_DEFAULT_MODEL:-gpt-6.1-sol}"
 DEFAULT_EFFORT="${CODEX_DEFAULT_EFFORT:-medium}"
 RECOVERY_PROMPT="Continue. Your previous turn was interrupted before the final answer was delivered (model capacity or stream error). Emit your complete final answer now."
 
@@ -130,11 +130,11 @@ usage() {
         'Options:' \
         '  --dir PATH         Working directory (default: current; resume defaults' \
         '                     to the session'"'"'s own recorded directory)' \
-        '  --model MODEL      Override model (default: gpt-6-astra via CODEX_DEFAULT_MODEL;' \
+        '  --model MODEL      Override model (default: gpt-6.1-sol via CODEX_DEFAULT_MODEL;' \
         '                     run/think/resume never inherit the model from config.toml)' \
         '  --effort LEVEL     Reasoning effort: low|medium|high|xhigh|max|ultra' \
         '                     (default medium via CODEX_DEFAULT_EFFORT; ultra on' \
-        '                     gpt-6-astra / gpt-5.6-sol / gpt-5.6-terra; luna caps at max).' \
+        '                     gpt-6.1-sol / gpt-6-astra / gpt-5.6-sol / gpt-5.6-terra; luna caps at max).' \
         '                     resume pins both too — codex would otherwise run a resumed' \
         '                     turn at config.toml'"'"'s effort, not the session'"'"'s' \
         '  --fast             service_tier="fast" (2x cost, 2x speed). Explicit per-run' \

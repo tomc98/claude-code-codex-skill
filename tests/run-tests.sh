@@ -419,15 +419,15 @@ else
 fi
 check_envelope stubborn-signal "$stubout"
 
-# 34. defaults are PINNED, never inherited from config.toml: model gpt-6-astra,
+# 34. defaults are PINNED, never inherited from config.toml: model gpt-6.1-sol,
 #     effort medium, service tier default — on both think and run
 run_case defaults ok 0 ok -- think "test prompt"
-expect "defaults: -m gpt-6-astra pinned"          test "$(arg_after -m "$LAST_STATE.args.1")" = "gpt-6-astra"
+expect "defaults: -m gpt-6.1-sol pinned"          test "$(arg_after -m "$LAST_STATE.args.1")" = "gpt-6.1-sol"
 expect "defaults: effort medium pinned"            grep -qx -- 'model_reasoning_effort="medium"' "$LAST_STATE.args.1"
 expect "defaults: tier default pinned"             grep -qx -- 'service_tier="default"' "$LAST_STATE.args.1"
-expect "defaults: CODEX_START names the model"     grep -q '^CODEX_START: mode=think model=gpt-6-astra effort=medium tier=default ' "$LAST_OUT"
+expect "defaults: CODEX_START names the model"     grep -q '^CODEX_START: mode=think model=gpt-6.1-sol effort=medium tier=default ' "$LAST_OUT"
 run_case defaults-run ok 0 ok -- run "test prompt"
-expect "defaults-run: -m gpt-6-astra pinned"       test "$(arg_after -m "$LAST_STATE.args.1")" = "gpt-6-astra"
+expect "defaults-run: -m gpt-6.1-sol pinned"       test "$(arg_after -m "$LAST_STATE.args.1")" = "gpt-6.1-sol"
 expect "defaults-run: effort medium pinned"        grep -qx -- 'model_reasoning_effort="medium"' "$LAST_STATE.args.1"
 expect "defaults-run: tier default pinned"         grep -qx -- 'service_tier="default"' "$LAST_STATE.args.1"
 
@@ -478,7 +478,7 @@ expect "resume-empty-effort: empty value falls back"   grep -qx -- 'model_reason
 mk_rollout resume-recover
 run_case resume-recover capacity_then_resume_ok 0 ok_recovered CODEX_DEFAULT_EFFORT=max -- resume --session "$SID" --effort xhigh "follow-up"
 expect "resume-recover: recovery carried the effort"   grep -qx -- 'model_reasoning_effort="xhigh"' "$LAST_STATE.args.2"
-expect "resume-recover: recovery carried the model"    test "$(arg_after -m "$LAST_STATE.args.2")" = "gpt-6-astra"
+expect "resume-recover: recovery carried the model"    test "$(arg_after -m "$LAST_STATE.args.2")" = "gpt-6.1-sol"
 run_case resume-effort-novalue ok 2 usage_error -- resume --session "$SID" --effort
 expect "resume-effort-novalue: stub not called"        test "$(cat "$LAST_STATE")" = "0"
 expect "resume-effort-novalue: need_value diagnostic"  grep -q "flag --effort requires a value" "$LAST_OUT"
