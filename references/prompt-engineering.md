@@ -1,6 +1,6 @@
 # Prompt Engineering for Codex
 
-GPT-6 Astra is an extraordinarily capable coding model (default effort `medium`; raise `--effort` per task). The quality of its output is directly proportional to the quality of the prompt. This guide covers how to craft prompts that get the most out of Codex.
+GPT-6.1 Sol (the default) is an extraordinarily capable coding model (default effort `medium`; raise `--effort` per task). The quality of its output is directly proportional to the quality of the prompt. This guide covers how to craft prompts that get the most out of Codex.
 
 ## Core Principles
 
@@ -30,7 +30,7 @@ Organize complex tasks into clear sections. Codex parses structure well.
 
 ### 5. Astra-specific clauses
 
-Astra (2026-09) differs from Sol in four ways that a prompt should pre-empt — see SKILL.md § Astra dispatch notes for the reasoning:
+When you opt into Astra (`--model gpt-6-astra`), it differs from Sol in four ways that a prompt should pre-empt — see SKILL.md § Astra dispatch notes for the reasoning:
 
 - **Autonomy:** "State your assumptions and proceed. Do not stop to ask questions — there is no one to answer." (It prefers to ask; `exec` has no user.)
 - **Verification scope:** name the exact gate — "run `./verify.sh --fast` and `<test file>`; do not run the full suite." (It over-tests.)
