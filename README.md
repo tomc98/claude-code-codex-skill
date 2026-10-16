@@ -61,7 +61,7 @@ sandbox_mode = "danger-full-access"
 service_tier = "default"
 ```
 
-The wrapper does not rely on these for `run`/`think`/`resume`: it pins the model (`CODEX_DEFAULT_MODEL`, default `gpt-6.1-sol`), the effort (`CODEX_DEFAULT_EFFORT`, default `medium`) and `service_tier="default"` on every invocation. Override per-invocation with `--model`, `--effort`, or `--sandbox`; `--fast` (2× cost) is an explicit opt-in, never a default.
+The wrapper does not rely on these for `run`/`think`/`resume`: it pins the model (`CODEX_DEFAULT_MODEL`; unset, the weekly balance picks `gpt-6.1-sol` or `gpt-6-astra` — see SKILL.md — and `resume` keeps the session's recorded model), the effort (`CODEX_DEFAULT_EFFORT`, default `medium`) and `service_tier="default"` on every invocation. Override per-invocation with `--model`, `--effort`, `--complex` (Astra + xhigh unless the balance is low) or `--sandbox`; `--fast` (2× cost) is an explicit opt-in, never a default.
 
 ## File Structure
 

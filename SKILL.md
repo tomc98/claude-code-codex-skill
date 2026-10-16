@@ -10,12 +10,22 @@ allowed-tools: Bash, Read, Grep, Glob, TaskOutput, Edit, Write
 
 Codex is GPT-6.1 Sol by default — a different model with a different reasoning manifold than Claude. It catches things you miss, thinks about problems differently, and arrives at solutions from a different angle. Use it as a genuine second brain, not just a subprocess. Its opinions, reviews, and implementations carry independent signal — when Codex disagrees with your approach, that disagreement is valuable.
 
-`gpt-6.1-sol` is the wrapper's **pinned default** (since 2026-09-30; Astra before that) — `codex.sh` always passes `-m`, so `~/.codex/config.toml` no longer decides the model. Override per call with `--model`, or machine-wide with `CODEX_DEFAULT_MODEL`.
+`gpt-6.1-sol` is the wrapper's **base default** (since 2026-09-30; Astra before that) — `codex.sh` always passes `-m`, so `~/.codex/config.toml` no longer decides the model. Override per call with `--model`, or machine-wide with `CODEX_DEFAULT_MODEL`.
+
+**The weekly balance picks between Sol and Astra.** With no `--model` and no `CODEX_DEFAULT_MODEL`, `run`/`think` read the newest `rate_limits` reading in the session logs (`scripts/codex-budget.py`) and compare the balance left with the time left in the week:
+
+| Band | When | Default | `--complex` |
+|---|---|---|---|
+| `high` | balance left is 20+ pts ahead of time left | `gpt-6-astra` | `gpt-6-astra` + `xhigh` |
+| `pace` (and `unknown`) | within 20 pts | `gpt-6.1-sol` | `gpt-6-astra` + `xhigh` |
+| `low` | 20+ pts behind, or under 15% left | `gpt-6.1-sol` | `gpt-6.1-sol` + `xhigh` |
+
+Only the `codex` pool's weekly (10080-minute) window counts; per-model pools and 5-hour windows are ignored, and a reading older than 12h counts as `unknown`. Pass `--complex` on hard implementation, deep review and gnarly debugging. An explicit `--model` / `--effort` always wins, and `CODEX_DEFAULT_MODEL` pins one model and turns the balance pick off. `CODEX_START` names the band (`budget=high`). `resume` with no `--model`/`--effort` (and no `CODEX_DEFAULT_*` pin) keeps the session's own recorded model and its recorded effort (each on its own; a field the session did not record falls back to the default), so a thread the balance put on Astra stays on Astra.
 
 | Model | Slug | Use it for |
 |-------|------|-----------|
-| **GPT-6.1 Sol** | `gpt-6.1-sol` | The default (2026-09-29). Near-Astra on agentic coding (OpenAI: matches Astra on DeepSWE v1.1) at a fifth of the price — $2 in / $10 out per 1M |
-| **GPT-6 Astra** | `gpt-6-astra` | Frontier reasoning — opt in with `--model gpt-6-astra` when Sol falls short. $10 in / $50 out per 1M |
+| **GPT-6.1 Sol** | `gpt-6.1-sol` | The base default (2026-09-29; balance `pace` / `low`). Near-Astra on agentic coding (OpenAI: matches Astra on DeepSWE v1.1) at a fifth of the price — $2 in / $10 out per 1M |
+| **GPT-6 Astra** | `gpt-6-astra` | Frontier reasoning — picked when the balance is `high` or on `--complex`, or opt in with `--model gpt-6-astra`. $10 in / $50 out per 1M |
 | **GPT-6 Sol** | `gpt-6-sol` | Superseded by 6.1 Sol |
 | **GPT-5.6 Sol** | `gpt-5.6-sol` | Previous-generation flagship |
 | **GPT-5.6 Terra** | `gpt-5.6-terra` | Balanced everyday work at lower cost |
@@ -71,8 +81,8 @@ When unclear, default to **run**.
 {base}/scripts/codex.sh transfer --latest   # newest transcript on this machine
 ```
 
-**Flags:** `--dir`, `--model`, `--effort`, `--sandbox`, `--image`, `--ephemeral`, `--schema`, `--add-dir`, `--fast` (explicit-permission only — see Fast mode) · transfer: `--source`, `--latest`
-**Env knobs:** `CODEX_DEFAULT_MODEL` (gpt-6.1-sol), `CODEX_DEFAULT_EFFORT` (medium), `CODEX_HEARTBEAT_SECS` (30), `CODEX_RECOVER_ATTEMPTS` (3), `CODEX_RECOVER_BACKOFF` (30s, doubles), `CODEX_SESSIONS_DIR` (~/.codex/sessions), `CODEX_BIN` (codex), `CODEX_TRANSFER_TIMEOUT` (180s)
+**Flags:** `--dir`, `--model`, `--effort`, `--complex`, `--sandbox`, `--image`, `--ephemeral`, `--schema`, `--add-dir`, `--fast` (explicit-permission only — see Fast mode) · transfer: `--source`, `--latest`
+**Env knobs:** `CODEX_DEFAULT_MODEL` (unset = balance pick, base gpt-6.1-sol), `CODEX_DEFAULT_EFFORT` (medium), `CODEX_HEARTBEAT_SECS` (30), `CODEX_RECOVER_ATTEMPTS` (3), `CODEX_RECOVER_BACKOFF` (30s, doubles), `CODEX_SESSIONS_DIR` (~/.codex/sessions), `CODEX_BIN` (codex), `CODEX_TRANSFER_TIMEOUT` (180s)
 
 Transfer notes (requires `python3`): codex only imports real transcripts under `~/.claude/projects` (snapshot copies are rejected), so the live file is imported. The imported thread id comes from the import's own `itemTypeResults` target (authoritative — immune to stale ledger records and concurrent transfers), with a hash-keyed ledger lookup as the old-protocol fallback. The imported thread keeps the working directory recorded **in the transcript** (`--dir` is advisory), and `resume` honours it via the rollout. For transfer, `CODEX_EXIT` is the bridge's exit code since the app-server is a long-lived process the bridge terminates by design. `CODEX_SESSIONS_DIR` defaults to `$CODEX_HOME/sessions`.
 
@@ -109,7 +119,7 @@ Shape (adapted from openai/codex-plugin-cc, Apache-2.0): `verdict` (`approve`|`n
 Task output format (heartbeat lines appear while Codex runs, so a growing file = alive):
 
 ```
-CODEX_START: mode=think model=gpt-6.1-sol effort=medium tier=default dir=/project
+CODEX_START: mode=think model=gpt-6.1-sol effort=medium tier=default budget=pace dir=/project
 [codex 30s] <last activity line>          # one line per 30s (CODEX_HEARTBEAT_SECS)
 [codex recover] …                         # only when recovery kicks in
 [stderr tail — last 40 lines]             # only on failure, always ABOVE the block

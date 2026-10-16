@@ -7,8 +7,8 @@
 # before session creation) = no recovery: an honest non-zero exit instead.
 #
 # Usage:
-#   codex.sh run "prompt" [--dir PATH] [--model MODEL] [--effort LEVEL] [--sandbox MODE] [--image FILE] [--ephemeral] [--schema FILE] [--add-dir PATH] [--fast]
-#   codex.sh think "prompt" [--dir PATH] [--model MODEL] [--effort LEVEL] [--image FILE] [--ephemeral] [--schema FILE] [--fast]
+#   codex.sh run "prompt" [--dir PATH] [--model MODEL] [--effort LEVEL] [--sandbox MODE] [--image FILE] [--ephemeral] [--schema FILE] [--add-dir PATH] [--fast] [--complex]
+#   codex.sh think "prompt" [--dir PATH] [--model MODEL] [--effort LEVEL] [--image FILE] [--ephemeral] [--schema FILE] [--fast] [--complex]
 #   codex.sh resume [--session ID | --last] "prompt" [--dir PATH] [--model MODEL] [--effort LEVEL] [--fast]
 #   codex.sh review [--base BRANCH | --commit SHA | --uncommitted] ["custom instructions"]
 #   codex.sh transfer [--source <claude-jsonl> | --latest] [--dir PATH]
@@ -22,7 +22,7 @@
 #       CODEX_STATUS: transfer_failed. Env: CODEX_TRANSFER_TIMEOUT (180s).
 #
 # Output contract (stdout):
-#   CODEX_START: mode=… model=… effort=… tier=… dir=…
+#   CODEX_START: mode=… model=… effort=… tier=… [budget=…] dir=…
 #   [codex Ns] …           progress lines (heartbeat every CODEX_HEARTBEAT_SECS)
 #   [codex recover] …      progress lines (recovery attempts)
 #   [stderr tail …]        diagnostics — printed on failure only, BEFORE the block
@@ -54,8 +54,11 @@
 #   CODEX_RECOVER_BACKOFF   first backoff in seconds, doubling each attempt —
 #                           total worst-case wait = BACKOFF*(2^ATTEMPTS - 1) (default: 30)
 #   CODEX_SESSIONS_DIR      rollout root (default: ~/.codex/sessions)
-#   CODEX_DEFAULT_MODEL     model pinned on run/think/resume when --model is absent
-#                           (default: gpt-6.1-sol — never inherited from config.toml)
+#   CODEX_DEFAULT_MODEL     model pinned on run/think/resume when --model is absent.
+#                           Unset: run/think let the weekly balance pick (codex-budget.py):
+#                           ahead of pace -> gpt-6-astra, otherwise gpt-6.1-sol (astra on
+#                           --complex unless the balance is low); resume keeps the
+#                           session's own recorded model. Never inherited from config.toml
 #   CODEX_DEFAULT_EFFORT    effort pinned on run/think/resume when --effort is absent
 #                           (default: medium)
 #
@@ -79,6 +82,8 @@ HEARTBEAT_SECS="${CODEX_HEARTBEAT_SECS:-30}"
 RECOVER_ATTEMPTS="${CODEX_RECOVER_ATTEMPTS:-3}"
 RECOVER_BACKOFF="${CODEX_RECOVER_BACKOFF:-30}"
 DEFAULT_MODEL="${CODEX_DEFAULT_MODEL:-gpt-6.1-sol}"
+TOP_MODEL="gpt-6-astra"     # the balance pick's top model (ahead of pace, or --complex)
+COMPLEX_EFFORT="xhigh"      # --complex effort when no --effort is given
 DEFAULT_EFFORT="${CODEX_DEFAULT_EFFORT:-medium}"
 RECOVERY_PROMPT="Continue. Your previous turn was interrupted before the final answer was delivered (model capacity or stream error). Emit your complete final answer now."
 
@@ -101,6 +106,8 @@ RESUME_MODE=false   # resume must always produce a verifiable session header
 MODE_NAME=""        # for the guaranteed CODEX_START line
 ANNOUNCED=false
 FAST=false          # --fast: service_tier="fast" (2x cost) — explicit opt-in only
+COMPLEX=false       # --complex: top model + xhigh unless the weekly balance is low
+BUDGET=""           # band the model was picked from (high|pace|low|unknown), for CODEX_START
 
 cleanup() {
     [ -n "$OUTPUT_FILE" ] && rm -f "$OUTPUT_FILE"
@@ -130,8 +137,12 @@ usage() {
         'Options:' \
         '  --dir PATH         Working directory (default: current; resume defaults' \
         '                     to the session'"'"'s own recorded directory)' \
-        '  --model MODEL      Override model (default: gpt-6.1-sol via CODEX_DEFAULT_MODEL;' \
-        '                     run/think/resume never inherit the model from config.toml)' \
+        '  --model MODEL      Override model. Default: CODEX_DEFAULT_MODEL, else run/think' \
+        '                     let the weekly balance pick gpt-6-astra (ahead of pace) or' \
+        '                     gpt-6.1-sol, and resume keeps the session'"'"'s recorded model;' \
+        '                     run/think/resume never inherit the model from config.toml' \
+        '  --complex          run/think: gpt-6-astra + xhigh for hard work (gpt-6.1-sol when' \
+        '                     the weekly balance is low; an explicit --model/--effort wins)' \
         '  --effort LEVEL     Reasoning effort: low|medium|high|xhigh|max|ultra' \
         '                     (default medium via CODEX_DEFAULT_EFFORT; ultra on' \
         '                     gpt-6.1-sol / gpt-6-astra / gpt-5.6-sol / gpt-5.6-terra; luna caps at max).' \
@@ -210,6 +221,39 @@ except Exception:
 ' "$f" 2>/dev/null
 }
 
+# Best-effort: "model|effort" from the session's newest turn_context (either side may
+# be empty when unrecorded or not a plain slug), so a resume
+# with no --model/--effort keeps what the session ran on (the weekly-balance pick
+# means that is not always DEFAULT_MODEL). Silent when unavailable.
+session_model_from_rollout() { # $1 = session id
+    command -v python3 >/dev/null 2>&1 || return 0
+    local f
+    f=$(ls -t "$CODEX_SESSIONS_DIR"/*/*/*/rollout-*"$1".jsonl 2>/dev/null | head -1)
+    [ -n "$f" ] || return 0
+    python3 -c '
+import json, re, sys
+model = effort = ""
+try:
+    for line in open(sys.argv[1], encoding="utf-8", errors="replace"):
+        if "\"turn_context\"" not in line:
+            continue
+        try:
+            p = json.loads(line)["payload"]
+        except (ValueError, KeyError, TypeError):
+            continue
+        if isinstance(p, dict):
+            model = p.get("model") or model
+            effort = p.get("effort") or p.get("reasoning_effort") or effort
+except OSError:
+    pass
+ok = re.compile(r"^[A-Za-z0-9._-]+$")
+model = model if isinstance(model, str) and ok.match(model) else ""
+effort = effort if isinstance(effort, str) and ok.match(effort) else ""
+if model or effort:
+    sys.stdout.write(model + "|" + effort)
+' "$f" 2>/dev/null
+}
+
 classify_stderr() {
     # capacity/transient → recoverable via same-session resume
     # cli_reject          → codex refused the invocation (bad flag value etc.)
@@ -234,7 +278,7 @@ print_stderr_tail() {
 # including usage/preflight failures that never reach announce().
 ensure_announced() {
     if [ "$ANNOUNCED" != true ]; then
-        echo "CODEX_START: mode=${MODE_NAME:-unknown} model=${MODEL:-default} effort=${EFFORT:-config} tier=$(tier_name) dir=${DIR:-$PWD}"
+        echo "CODEX_START: mode=${MODE_NAME:-unknown} model=${MODEL:-default} effort=${EFFORT:-config} tier=$(tier_name)${BUDGET:+ budget=$BUDGET} dir=${DIR:-$PWD}"
         ANNOUNCED=true
     fi
 }
@@ -411,6 +455,7 @@ parse_common_flags() {
     ADD_DIRS=()
     SEARCH=false
     FAST=false
+    COMPLEX=false
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -428,6 +473,7 @@ parse_common_flags() {
             --add-dir)   need_value "$1" $#; ADD_DIRS+=("$2"); shift 2 ;;
             --search)    SEARCH=true; shift ;;
             --fast)      FAST=true; shift ;;
+            --complex)   COMPLEX=true; shift ;;
             --*)         fail_usage "unknown flag '$1' (a prompt starting with '-'? pass it after --)" ;;
             *)
                 if [[ -z "$PROMPT" ]]; then
@@ -468,7 +514,7 @@ build_cmd() {
 
 announce() { # $1=mode — idempotent; a preflight message may have announced already
     [ "$ANNOUNCED" = true ] && return 0
-    echo "CODEX_START: mode=$1 model=${MODEL:-default} effort=${EFFORT:-config} tier=$(tier_name) dir=${DIR:-$PWD}"
+    echo "CODEX_START: mode=$1 model=${MODEL:-default} effort=${EFFORT:-config} tier=$(tier_name)${BUDGET:+ budget=$BUDGET} dir=${DIR:-$PWD}"
     ANNOUNCED=true
 }
 
@@ -489,6 +535,24 @@ resolve_last_session() {
         | sed -nE 's/.*-([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\.jsonl$/\1/p'
 }
 
+# run/think defaults. An explicit --model / --effort / CODEX_DEFAULT_MODEL always wins.
+pick_defaults() {
+    if [[ -z "$MODEL" && -n "${CODEX_DEFAULT_MODEL:-}" ]]; then MODEL="$CODEX_DEFAULT_MODEL"; fi
+    if [[ -z "$MODEL" ]]; then
+        local reading
+        reading="$(python3 "$SCRIPT_DIR/codex-budget.py" "$CODEX_SESSIONS_DIR" 2>/dev/null)" || reading=""
+        BUDGET="${reading%% *}"; [[ -n "$BUDGET" ]] || BUDGET="unknown"
+        case "$BUDGET" in
+            high) MODEL="$TOP_MODEL" ;;
+            low)  MODEL="$DEFAULT_MODEL" ;;
+            *)    if $COMPLEX; then MODEL="$TOP_MODEL"; else MODEL="$DEFAULT_MODEL"; fi ;;
+        esac
+    fi
+    if [[ -z "$EFFORT" ]]; then
+        if $COMPLEX; then EFFORT="$COMPLEX_EFFORT"; else EFFORT="$DEFAULT_EFFORT"; fi
+    fi
+}
+
 # ── Run ──────────────────────────────────────────────────────────────
 
 run_codex() {
@@ -499,8 +563,7 @@ run_codex() {
 
     # Defaults for run: full-access sandbox, web search on, explicit effort
     [[ -z "$SANDBOX" ]] && SANDBOX="danger-full-access"
-    [[ -z "$MODEL" ]]   && MODEL="$DEFAULT_MODEL"
-    [[ -z "$EFFORT" ]]  && EFFORT="$DEFAULT_EFFORT"
+    pick_defaults
     SEARCH=true
 
     build_cmd
@@ -520,8 +583,7 @@ think_codex() {
     # Sessions PERSIST (the old forced --ephemeral made every think session
     # unrecoverable and unresumable — pass --ephemeral explicitly to opt out).
     [[ -z "$SANDBOX" ]] && SANDBOX="read-only"
-    [[ -z "$MODEL" ]]   && MODEL="$DEFAULT_MODEL"
-    [[ -z "$EFFORT" ]]  && EFFORT="$DEFAULT_EFFORT"
+    pick_defaults
     SEARCH=true
 
     build_cmd
@@ -540,7 +602,7 @@ resume_codex() {
     EFFORT="$DEFAULT_EFFORT"
     SCHEMA=""
     FAST=false
-    local session_id="" use_last=false show_all=false
+    local session_id="" use_last=false show_all=false model_flag="" effort_flag=""
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -551,8 +613,8 @@ resume_codex() {
             --session)  need_value "$1" $#; session_id="$2"; shift 2 ;;
             --last)     use_last=true; shift ;;
             --dir)      need_value "$1" $#; DIR="$2"; shift 2 ;;
-            --model)    need_value "$1" $#; MODEL="$2"; shift 2 ;;
-            --effort)   need_value "$1" $#; EFFORT="$2"; shift 2 ;;
+            --model)    need_value "$1" $#; MODEL="$2"; model_flag="$2"; shift 2 ;;
+            --effort)   need_value "$1" $#; EFFORT="$2"; effort_flag="$2"; shift 2 ;;
             --all)      show_all=true; shift ;;   # legacy no-op: --last is wrapper-resolved globally now
             --fast)     FAST=true; shift ;;
             --*)        fail_usage "unknown flag '$1' (a prompt starting with '-'? pass it after --)" ;;
@@ -610,6 +672,16 @@ resume_codex() {
             exit 4
         fi
         REQUESTED_SID="$session_id"
+    fi
+
+    # No --model/--effort and no CODEX_DEFAULT_* pin: keep the session's own
+    # recorded model + effort, so a thread the balance put on astra stays there
+    if [[ ( -z "$model_flag" && -z "${CODEX_DEFAULT_MODEL:-}" ) || ( -z "$effort_flag" && -z "${CODEX_DEFAULT_EFFORT:-}" ) ]]; then
+        local recorded
+        recorded=$(session_model_from_rollout "$session_id")
+        local rec_model="${recorded%%|*}" rec_effort="${recorded#*|}"
+        [[ -n "$rec_model" && -z "$model_flag" && -z "${CODEX_DEFAULT_MODEL:-}" ]]    && MODEL="$rec_model"
+        [[ -n "$rec_effort" && -z "$effort_flag" && -z "${CODEX_DEFAULT_EFFORT:-}" ]] && EFFORT="$rec_effort"
     fi
 
     # Resume from the session's OWN directory unless --dir overrides: codex

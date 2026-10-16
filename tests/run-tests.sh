@@ -504,6 +504,140 @@ expect "resume-ultra-recover: recovery keeps multi_agent_v2" grep -qx -- 'featur
 run_case resume-preflight-effort ok 2 usage_error CODEX_DEFAULT_EFFORT=max -- resume --session "not-a-uuid" "hi"
 expect "resume-preflight-effort: CODEX_START never effort=config" grep -q '^CODEX_START: .* effort=max ' "$LAST_OUT"
 
+# 38. the weekly balance picks the run/think model when nothing names one;
+#     --complex asks for astra + xhigh; resume keeps the session's recorded model
+BNOW=1792000000; BDAY="$(date -r "$BNOW" +%Y/%m/%d)"; WEEK=604800
+mk_budget() { # name used_pct resets_in_secs — a rollout carrying one rate_limits reading
+    mkdir -p "$TMP/sessions-$1/$BDAY"
+    printf '{"type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":%s,"window_minutes":10080,"resets_at":%s}}}}\n' \
+        "$2" "$((BNOW + $3))" > "$TMP/sessions-$1/$BDAY/rollout-2026-10-15T00-00-00-$SID.jsonl"
+}
+mdl() { arg_after -m "$LAST_STATE.args.1"; }
+mk_budget b-high 5 $((WEEK * 5 / 7))          # 95% left vs 71% of the week: +24
+run_case b-high ok 0 ok CODEX_BUDGET_NOW=$BNOW -- think "test prompt"
+expect "b-high: astra"                         test "$(mdl)" = "gpt-6-astra"
+expect "b-high: effort stays medium"           grep -qx -- 'model_reasoning_effort="medium"' "$LAST_STATE.args.1"
+expect "b-high: CODEX_START names the band"    grep -q '^CODEX_START: mode=think model=gpt-6-astra effort=medium tier=default budget=high ' "$LAST_OUT"
+mk_budget b-edge 10 $((WEEK * 5 / 7))          # 90% left vs 71%: +19, under the bar
+run_case b-edge ok 0 ok CODEX_BUDGET_NOW=$BNOW -- run "test prompt"
+expect "b-edge: +19 stays 6.1-sol"                 test "$(mdl)" = "gpt-6.1-sol"
+mk_budget b-pace 22 $((WEEK * 3 / 4))
+run_case b-pace ok 0 ok CODEX_BUDGET_NOW=$BNOW -- think "test prompt"
+expect "b-pace: 6.1-sol"                           test "$(mdl)" = "gpt-6.1-sol"
+mk_budget b-pace-cx 22 $((WEEK * 3 / 4))
+run_case b-pace-cx ok 0 ok CODEX_BUDGET_NOW=$BNOW -- run "test prompt" --complex
+expect "b-pace-cx: astra"                      test "$(mdl)" = "gpt-6-astra"
+expect "b-pace-cx: xhigh"                      grep -qx -- 'model_reasoning_effort="xhigh"' "$LAST_STATE.args.1"
+mk_budget b-floor 90 $((WEEK / 7))             # 10% left, under the 15% floor
+run_case b-floor ok 0 ok CODEX_BUDGET_NOW=$BNOW -- think "test prompt" --complex
+expect "b-floor: complex capped at 6.1-sol"        test "$(mdl)" = "gpt-6.1-sol"
+expect "b-floor: complex still xhigh"          grep -qx -- 'model_reasoning_effort="xhigh"' "$LAST_STATE.args.1"
+mk_budget b-behind 60 $((WEEK * 6 / 7))        # 40% left vs 86%: -46
+run_case b-behind ok 0 ok CODEX_BUDGET_NOW=$BNOW -- think "test prompt" --complex
+expect "b-behind: 6.1-sol"                         test "$(mdl)" = "gpt-6.1-sol"
+mk_budget b-rolled 95 -3600                    # reading is from before the reset
+run_case b-rolled ok 0 ok CODEX_BUDGET_NOW=$BNOW -- think "test prompt" --complex
+expect "b-rolled: fresh window is pace, astra" test "$(mdl)" = "gpt-6-astra"
+expect "b-rolled: CODEX_START says pace"       grep -q ' budget=pace ' "$LAST_OUT"
+run_case b-unknown-cx ok 0 ok CODEX_BUDGET_NOW=$BNOW -- think "test prompt" --complex
+expect "b-unknown-cx: no reading acts as pace" test "$(mdl)" = "gpt-6-astra"
+expect "b-unknown-cx: CODEX_START unknown"     grep -q ' budget=unknown ' "$LAST_OUT"
+mk_budget b-flag 5 $((WEEK * 5 / 7))
+run_case b-flag ok 0 ok CODEX_BUDGET_NOW=$BNOW -- think "test prompt" --model gpt-5.6-luna --complex --effort ultra
+expect "b-flag: --model beats the band"        test "$(mdl)" = "gpt-5.6-luna"
+expect "b-flag: --effort beats --complex"      grep -qx -- 'model_reasoning_effort="ultra"' "$LAST_STATE.args.1"
+expect "b-flag: no band when model is named"   sh -c "! grep -q ' budget=' '$LAST_OUT'"
+mk_budget b-env 5 $((WEEK * 5 / 7))
+run_case b-env ok 0 ok CODEX_BUDGET_NOW=$BNOW CODEX_DEFAULT_MODEL=gpt-5.6-terra -- think "test prompt"
+expect "b-env: CODEX_DEFAULT_MODEL beats band" test "$(mdl)" = "gpt-5.6-terra"
+run_case b-resume-cx ok 2 usage_error -- resume --session "$SID" "x" --complex
+# a per-model pool's 5-hour window must not pass for the weekly balance
+mk_budget b-pools 22 $((WEEK * 3 / 4))
+printf '{"type":"event_msg","payload":{"type":"token_count","rate_limits":{"limit_id":"codex_other","primary":{"used_percent":0,"window_minutes":300,"resets_at":%s},"secondary":{"used_percent":0,"window_minutes":10080,"resets_at":%s}}}}\n' \
+    "$((BNOW + 9000))" "$((BNOW + WEEK / 2))" >> "$TMP/sessions-b-pools/$BDAY/rollout-2026-10-15T00-00-00-$SID.jsonl"
+run_case b-pools ok 0 ok CODEX_BUDGET_NOW=$BNOW -- think "test prompt"
+expect "b-pools: other pool ignored, 6.1-sol"      test "$(mdl)" = "gpt-6.1-sol"
+expect "b-pools: band from the codex pool"     grep -q ' budget=pace ' "$LAST_OUT"
+# the weekly window may sit in secondary
+mkdir -p "$TMP/sessions-b-second/$BDAY"
+printf '{"type":"event_msg","payload":{"type":"token_count","rate_limits":{"limit_id":"codex","primary":{"used_percent":80,"window_minutes":300,"resets_at":%s},"secondary":{"used_percent":5,"window_minutes":10080,"resets_at":%s}}}}\n' \
+    "$((BNOW + 9000))" "$((BNOW + WEEK * 5 / 7))" > "$TMP/sessions-b-second/$BDAY/rollout-2026-10-15T00-00-00-$SID.jsonl"
+run_case b-second ok 0 ok CODEX_BUDGET_NOW=$BNOW -- think "test prompt"
+expect "b-second: weekly secondary used, astra" test "$(mdl)" = "gpt-6-astra"
+# a reading older than 12h is no reading
+mkdir -p "$TMP/sessions-b-stale/$BDAY"
+printf '{"timestamp":"%s","type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":5,"window_minutes":10080,"resets_at":%s}}}}\n' \
+    "$(date -u -r $((BNOW - 13 * 3600)) +%Y-%m-%dT%H:%M:%S.000Z)" "$((BNOW + WEEK * 5 / 7))" > "$TMP/sessions-b-stale/$BDAY/rollout-2026-10-15T00-00-00-$SID.jsonl"
+run_case b-stale ok 0 ok CODEX_BUDGET_NOW=$BNOW -- think "test prompt"
+expect "b-stale: 13h-old reading is unknown"   grep -q ' budget=unknown ' "$LAST_OUT"
+expect "b-stale: unknown defaults to 6.1-sol"      test "$(mdl)" = "gpt-6.1-sol"
+mkdir -p "$TMP/sessions-b-fresh/$BDAY"
+printf '{"timestamp":"%s","type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":5,"window_minutes":10080,"resets_at":%s}}}}\nnot json\n{"payload":null,"x":"rate_limits"}\n' \
+    "$(date -u -r $((BNOW - 3600)) +%Y-%m-%dT%H:%M:%S.000Z)" "$((BNOW + WEEK * 5 / 7))" > "$TMP/sessions-b-fresh/$BDAY/rollout-2026-10-15T00-00-00-$SID.jsonl"
+run_case b-fresh ok 0 ok CODEX_BUDGET_NOW=$BNOW -- think "test prompt"
+expect "b-fresh: 1h-old reading counts, astra" test "$(mdl)" = "gpt-6-astra"
+# resume with no flags keeps the session's own model + effort, not config.toml
+mkdir -p "$TMP/sessions-b-resume/2026/07/13"
+printf '{"type":"turn_context","payload":{"model":"gpt-6-astra","effort":"xhigh"}}\n' > "$TMP/sessions-b-resume/2026/07/13/rollout-2026-07-13T00-00-00-$SID.jsonl"
+run_case b-resume ok 0 ok -- resume --session "$SID" "follow-up"
+expect "b-resume: recorded model carried"      test "$(mdl)" = "gpt-6-astra"
+expect "b-resume: recorded effort carried"     grep -qx -- 'model_reasoning_effort="xhigh"' "$LAST_STATE.args.1"
+mkdir -p "$TMP/sessions-b-resume-flag/2026/07/13"
+printf '{"type":"turn_context","payload":{"model":"gpt-6-astra","effort":"xhigh"}}\n' > "$TMP/sessions-b-resume-flag/2026/07/13/rollout-2026-07-13T00-00-00-$SID.jsonl"
+run_case b-resume-flag ok 0 ok -- resume --session "$SID" "follow-up" --effort low
+expect "b-resume-flag: --effort still wins"    grep -qx -- 'model_reasoning_effort="low"' "$LAST_STATE.args.1"
+expect "b-resume-flag: model still carried"    test "$(mdl)" = "gpt-6-astra"
+
+mkdir -p "$TMP/sessions-b-resume-env/2026/07/13"
+printf '{"type":"turn_context","payload":{"model":"gpt-6-astra","effort":"xhigh"}}\n' > "$TMP/sessions-b-resume-env/2026/07/13/rollout-2026-07-13T00-00-00-$SID.jsonl"
+run_case b-resume-env ok 0 ok CODEX_DEFAULT_MODEL=gpt-5.6-terra -- resume --session "$SID" "follow-up"
+expect "b-resume-env: CODEX_DEFAULT_MODEL pin wins" test "$(mdl)" = "gpt-5.6-terra"
+expect "b-resume-env: effort still carried"     grep -qx -- 'model_reasoning_effort="xhigh"' "$LAST_STATE.args.1"
+mkdir -p "$TMP/sessions-b-resume-last/2026/07/13"
+printf '{"type":"turn_context","payload":{"model":"gpt-6-astra","effort":"xhigh"}}\n' > "$TMP/sessions-b-resume-last/2026/07/13/rollout-2026-07-13T00-00-00-$SID.jsonl"
+run_case b-resume-last ok 0 ok -- resume --last "follow-up"
+expect "b-resume-last: --last carries the model" test "$(mdl)" = "gpt-6-astra"
+# reviewer gaps: boundaries, high+complex, low without complex, malformed readings,
+# recovery carrying the picked model, resume with a partial record or an effort-only pin
+mk_budget b-plus20 10 $((WEEK * 7 / 10))       # 90% left vs 70%: exactly +20
+run_case b-plus20 ok 0 ok CODEX_BUDGET_NOW=$BNOW -- think "test prompt"
+expect "b-plus20: +20 is high, astra"          test "$(mdl)" = "gpt-6-astra"
+mk_budget b-minus20 50 $((WEEK * 7 / 10))      # 50% left vs 70%: exactly -20
+run_case b-minus20 ok 0 ok CODEX_BUDGET_NOW=$BNOW -- think "test prompt" --complex
+expect "b-minus20: -20 is low, 6.1-sol"        test "$(mdl)" = "gpt-6.1-sol"
+expect "b-minus20: CODEX_START says low"       grep -q ' budget=low ' "$LAST_OUT"
+mk_budget b-high-cx 5 $((WEEK * 5 / 7))
+run_case b-high-cx ok 0 ok CODEX_BUDGET_NOW=$BNOW -- think "test prompt" --complex
+expect "b-high-cx: astra"                      test "$(mdl)" = "gpt-6-astra"
+expect "b-high-cx: xhigh"                      grep -qx -- 'model_reasoning_effort="xhigh"' "$LAST_STATE.args.1"
+mk_budget b-low 90 $((WEEK / 7))
+run_case b-low ok 0 ok CODEX_BUDGET_NOW=$BNOW -- run "test prompt"
+expect "b-low: 6.1-sol"                        test "$(mdl)" = "gpt-6.1-sol"
+expect "b-low: effort medium"                  grep -qx -- 'model_reasoning_effort="medium"' "$LAST_STATE.args.1"
+mkdir -p "$TMP/sessions-b-noreset/$BDAY"
+printf '{"type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":90,"window_minutes":10080}}}}\n' > "$TMP/sessions-b-noreset/$BDAY/rollout-2026-10-15T00-00-00-$SID.jsonl"
+run_case b-noreset ok 0 ok CODEX_BUDGET_NOW=$BNOW -- think "test prompt"
+expect "b-noreset: no resets_at is unknown"    grep -q ' budget=unknown ' "$LAST_OUT"
+mk_budget b-older 5 $((WEEK * 5 / 7))
+touch -t 202601010000 "$TMP/sessions-b-older/$BDAY/rollout-2026-10-15T00-00-00-$SID.jsonl"
+printf '{"type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":null,"window_minutes":10080,"resets_at":%s}}}}\n' \
+    "$((BNOW + WEEK / 2))" > "$TMP/sessions-b-older/$BDAY/rollout-2026-10-15T01-00-00-11111111-2222-3333-4444-555555555555.jsonl"
+run_case b-older ok 0 ok CODEX_BUDGET_NOW=$BNOW -- think "test prompt"
+expect "b-older: bad newest reading, older one used" test "$(mdl)" = "gpt-6-astra"
+mk_budget b-recover 5 $((WEEK * 5 / 7))
+run_case b-recover capacity_then_resume_ok 0 ok_recovered CODEX_BUDGET_NOW=$BNOW -- think "test prompt" --complex
+expect "b-recover: recovery carried astra"     test "$(arg_after -m "$LAST_STATE.args.2")" = "gpt-6-astra"
+expect "b-recover: recovery carried xhigh"     grep -qx -- 'model_reasoning_effort="xhigh"' "$LAST_STATE.args.2"
+mkdir -p "$TMP/sessions-b-resume-null/2026/07/13"
+printf '{"type":"turn_context","payload":{"model":"gpt-6-astra","effort":null}}\n' > "$TMP/sessions-b-resume-null/2026/07/13/rollout-2026-07-13T00-00-00-$SID.jsonl"
+run_case b-resume-null ok 0 ok -- resume --session "$SID" "follow-up"
+expect "b-resume-null: model kept without effort" test "$(mdl)" = "gpt-6-astra"
+expect "b-resume-null: effort falls back"      grep -qx -- 'model_reasoning_effort="medium"' "$LAST_STATE.args.1"
+mkdir -p "$TMP/sessions-b-resume-effenv/2026/07/13"
+printf '{"type":"turn_context","payload":{"model":"gpt-6-astra","effort":"xhigh"}}\n' > "$TMP/sessions-b-resume-effenv/2026/07/13/rollout-2026-07-13T00-00-00-$SID.jsonl"
+run_case b-resume-effenv ok 0 ok CODEX_DEFAULT_EFFORT=low -- resume --session "$SID" "follow-up"
+expect "b-resume-effenv: model carried"        test "$(mdl)" = "gpt-6-astra"
+expect "b-resume-effenv: effort env pin wins"  grep -qx -- 'model_reasoning_effort="low"' "$LAST_STATE.args.1"
 echo
 echo "==== $PASS passed, $FAIL failed ===="
 rm -rf "$TMP"
